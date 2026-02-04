@@ -23,7 +23,7 @@
 
 ## Description
 
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
+NamazGo’s backend. NamazGo learns where to face from Kible.
 
 ## Project setup
 
