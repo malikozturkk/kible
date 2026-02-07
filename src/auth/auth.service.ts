@@ -1,4 +1,9 @@
-import { Injectable, UnauthorizedException, ConflictException } from '@nestjs/common';
+import {
+  Injectable,
+  UnauthorizedException,
+  ConflictException,
+  BadRequestException,
+} from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { StringValue } from 'ms';
 import * as bcrypt from 'bcrypt';
@@ -23,19 +28,41 @@ export class AuthService {
   ) {}
 
   async register(registerDto: RegisterDto): Promise<AuthResponseDto> {
-    const { username, phone, password } = registerDto;
-    const existingUser = await this.prisma.user.findFirst({
-      where: {
-        OR: [{ username }, { phone }],
-      },
+    const { username, phone, email, password } = registerDto;
+
+    if (phone && email) {
+      throw new BadRequestException('PHONE_AND_EMAIL_CANNOT_BE_USED_TOGETHER');
+    }
+
+    if (!phone && !email) {
+      throw new BadRequestException('PHONE_OR_EMAIL_REQUIRED');
+    }
+
+    const existingUsername = await this.prisma.user.findUnique({
+      where: { username },
     });
 
-    if (existingUser) {
-      if (existingUser.username === username) {
-        throw new ConflictException('Username already exists');
+    if (existingUsername) {
+      throw new ConflictException('Username already exists');
+    }
+
+    if (phone) {
+      const existingPhone = await this.prisma.user.findUnique({
+        where: { phone },
+      });
+
+      if (existingPhone) {
+        throw new ConflictException('USER_ALREADY_EXISTS');
       }
-      if (existingUser.phone === phone) {
-        throw new ConflictException('Phone number already exists');
+    }
+
+    if (email) {
+      const existingEmail = await this.prisma.user.findUnique({
+        where: { email },
+      });
+
+      if (existingEmail) {
+        throw new ConflictException('USER_ALREADY_EXISTS');
       }
     }
 
@@ -44,7 +71,8 @@ export class AuthService {
     const user = await this.prisma.user.create({
       data: {
         username,
-        phone,
+        ...(phone ? { phone } : {}),
+        ...(email ? { email } : {}),
         credentials: {
           create: {
             passwordHash,
@@ -55,6 +83,7 @@ export class AuthService {
         id: true,
         username: true,
         phone: true,
+        email: true,
         avatar: true,
       },
     });
@@ -67,9 +96,18 @@ export class AuthService {
   }
 
   async login(loginDto: LoginDto): Promise<AuthResponseDto> {
-    const { username, password } = loginDto;
-    const user = await this.prisma.user.findUnique({
-      where: { username },
+    const { phone, email, password } = loginDto;
+
+    if (phone && email) {
+      throw new BadRequestException('PHONE_AND_EMAIL_CANNOT_BE_USED_TOGETHER');
+    }
+
+    if (!phone && !email) {
+      throw new BadRequestException('PHONE_OR_EMAIL_REQUIRED');
+    }
+
+    const user = await this.prisma.user.findFirst({
+      where: phone ? { phone } : { email },
       include: {
         credentials: true,
       },
@@ -93,6 +131,7 @@ export class AuthService {
         id: user.id,
         username: user.username,
         phone: user.phone,
+        email: user.email,
         avatar: user.avatar,
       },
     };
@@ -109,6 +148,7 @@ export class AuthService {
             id: true,
             username: true,
             phone: true,
+            email: true,
             avatar: true,
           },
         },
@@ -159,6 +199,7 @@ export class AuthService {
         id: true,
         username: true,
         phone: true,
+        email: true,
         avatar: true,
         createdAt: true,
         updatedAt: true,
@@ -200,6 +241,7 @@ export class AuthService {
         id: true,
         username: true,
         phone: true,
+        email: true,
         avatar: true,
       },
     });

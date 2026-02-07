@@ -1,4 +1,4 @@
-import { IsString, IsNotEmpty, MinLength, Matches } from 'class-validator';
+import { IsString, IsNotEmpty, IsOptional, IsEmail, MinLength, Matches } from 'class-validator';
 
 export class RegisterDto {
   @IsString()
@@ -9,11 +9,15 @@ export class RegisterDto {
   username: string;
 
   @IsString()
-  @IsNotEmpty()
+  @IsOptional()
   @Matches(/^\+?[1-9]\d{1,14}$/, {
     message: 'Phone must be a valid phone number',
   })
-  phone: string;
+  phone?: string;
+
+  @IsOptional()
+  @IsEmail({}, { message: 'INVALID_EMAIL_FORMAT' })
+  email?: string;
 
   @IsString()
   @IsNotEmpty()
