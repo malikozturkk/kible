@@ -152,30 +152,33 @@ export class AuthService {
     };
   }
 
-  async logout(userId: string, refreshToken?: string): Promise<void> {
-    if (refreshToken) {
-      const tokenHash = crypto.createHash('sha256').update(refreshToken).digest('hex');
+  async logout(userId: string, refreshToken: string): Promise<void> {
+    const tokenHash = crypto.createHash('sha256').update(refreshToken).digest('hex');
 
-      await this.prisma.refreshToken.updateMany({
-        where: {
-          tokenHash,
-          userId,
-        },
-        data: {
-          isRevoked: true,
-        },
-      });
-    } else {
-      await this.prisma.refreshToken.updateMany({
-        where: {
-          userId,
-          isRevoked: false,
-        },
-        data: {
-          isRevoked: true,
-        },
-      });
+    const storedToken = await this.prisma.refreshToken.findUnique({
+      where: { tokenHash },
+    });
+
+    if (!storedToken) {
+      throw new UnauthorizedException('INVALID_REFRESH_TOKEN');
     }
+
+    if (storedToken.userId !== userId) {
+      throw new UnauthorizedException('INVALID_REFRESH_TOKEN');
+    }
+
+    if (storedToken.isRevoked) {
+      throw new UnauthorizedException('TOKEN_ALREADY_INVALIDATED');
+    }
+
+    if (storedToken.expiresAt < new Date()) {
+      throw new UnauthorizedException('REFRESH_TOKEN_EXPIRED');
+    }
+
+    await this.prisma.refreshToken.update({
+      where: { id: storedToken.id },
+      data: { isRevoked: true },
+    });
   }
 
   async me(userId: string) {
