@@ -12,8 +12,7 @@ datasource db {
 
 model User {
   id            String          @id @default(uuid())
-  phone         String?         @unique
-  email         String?         @unique
+  email         String          @unique
   username      String          @unique
   avatar        String?
   createdAt     DateTime        @default(now())
@@ -54,4 +53,20 @@ model RefreshToken {
 
   @@index([userId])
   @@map("refresh_tokens")
+}
+
+//////////////////////////////////////////////////////
+
+model OtpVerification {
+  id            String   @id @default(uuid())
+  tokenHash     String   @unique
+  otpCode       String
+  otpExpiresAt  DateTime
+  email         String
+  username      String
+  passwordHash  String
+  expiresAt     DateTime
+  createdAt     DateTime @default(now())
+
+  @@map("otp_verifications")
 }

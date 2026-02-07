@@ -13,7 +13,9 @@ import { LoginDto } from './dto/login.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { AuthResponseDto } from './dto/auth-response.dto';
+import { RegisterResponseDto } from './dto/register-response.dto';
 import { JwtPayload } from './strategies/jwt.strategy';
+import { OtpService } from '../otp/otp.service';
 import * as crypto from 'crypto';
 
 @Injectable()
@@ -25,17 +27,14 @@ export class AuthService {
   constructor(
     private prisma: PrismaService,
     private jwtService: JwtService,
+    private otpService: OtpService,
   ) {}
 
-  async register(registerDto: RegisterDto): Promise<AuthResponseDto> {
-    const { username, phone, email, password } = registerDto;
+  async register(registerDto: RegisterDto): Promise<RegisterResponseDto> {
+    const { username, email, password } = registerDto;
 
-    if (phone && email) {
-      throw new BadRequestException('PHONE_AND_EMAIL_CANNOT_BE_USED_TOGETHER');
-    }
-
-    if (!phone && !email) {
-      throw new BadRequestException('PHONE_OR_EMAIL_REQUIRED');
+    if (!email) {
+      throw new BadRequestException('EMAIL_REQUIRED');
     }
 
     const existingUsername = await this.prisma.user.findUnique({
@@ -43,71 +42,60 @@ export class AuthService {
     });
 
     if (existingUsername) {
-      throw new ConflictException('Username already exists');
+      throw new ConflictException('USERNAME_ALREADY_EXISTS');
     }
+    const existingEmail = await this.prisma.user.findUnique({
+      where: { email },
+    });
 
-    if (phone) {
-      const existingPhone = await this.prisma.user.findUnique({
-        where: { phone },
-      });
-
-      if (existingPhone) {
-        throw new ConflictException('USER_ALREADY_EXISTS');
-      }
-    }
-
-    if (email) {
-      const existingEmail = await this.prisma.user.findUnique({
-        where: { email },
-      });
-
-      if (existingEmail) {
-        throw new ConflictException('USER_ALREADY_EXISTS');
-      }
+    if (existingEmail) {
+      throw new ConflictException('USER_ALREADY_EXISTS');
     }
 
     const securePassword = password + this.PEPPER;
     const passwordHash = await bcrypt.hash(securePassword, 12);
-    const user = await this.prisma.user.create({
-      data: {
-        username,
-        ...(phone ? { phone } : {}),
-        ...(email ? { email } : {}),
-        credentials: {
-          create: {
-            passwordHash,
-          },
-        },
-      },
-      select: {
-        id: true,
-        username: true,
-        phone: true,
-        email: true,
-        avatar: true,
+
+    const activeOtp = await this.prisma.otpVerification.findFirst({
+      where: {
+        OR: [{ email }, { username }],
+        otpExpiresAt: { gt: new Date() },
+        expiresAt: { gt: new Date() },
       },
     });
 
-    const tokens = await this.generateTokens(user.id, user.username);
+    if (activeOtp) {
+      throw new ConflictException('ACTIVE_OTP_EXISTS');
+    }
+
+    await this.prisma.otpVerification.deleteMany({
+      where: {
+        OR: [{ email }, { username }],
+        otpExpiresAt: { lte: new Date() },
+      },
+    });
+
+    const tempToken = this.jwtService.sign(
+      { email, username, purpose: 'register' },
+      { expiresIn: '10m' },
+    );
+
+    await this.otpService.create(tempToken, { email, username, passwordHash });
+
     return {
-      ...tokens,
-      user,
+      tempToken,
+      message: 'OTP_SENT_TO_EMAIL',
     };
   }
 
   async login(loginDto: LoginDto): Promise<AuthResponseDto> {
-    const { phone, email, password } = loginDto;
+    const { email, password } = loginDto;
 
-    if (phone && email) {
-      throw new BadRequestException('PHONE_AND_EMAIL_CANNOT_BE_USED_TOGETHER');
+    if (!email) {
+      throw new BadRequestException('EMAIL_REQUIRED');
     }
 
-    if (!phone && !email) {
-      throw new BadRequestException('PHONE_OR_EMAIL_REQUIRED');
-    }
-
-    const user = await this.prisma.user.findFirst({
-      where: phone ? { phone } : { email },
+    const user = await this.prisma.user.findUnique({
+      where: { email },
       include: {
         credentials: true,
       },
@@ -130,7 +118,6 @@ export class AuthService {
       user: {
         id: user.id,
         username: user.username,
-        phone: user.phone,
         email: user.email,
         avatar: user.avatar,
       },
@@ -147,7 +134,6 @@ export class AuthService {
           select: {
             id: true,
             username: true,
-            phone: true,
             email: true,
             avatar: true,
           },
@@ -198,7 +184,6 @@ export class AuthService {
       select: {
         id: true,
         username: true,
-        phone: true,
         email: true,
         avatar: true,
         createdAt: true,
@@ -240,7 +225,6 @@ export class AuthService {
       select: {
         id: true,
         username: true,
-        phone: true,
         email: true,
         avatar: true,
       },

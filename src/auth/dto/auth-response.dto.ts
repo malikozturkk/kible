@@ -9,11 +9,6 @@ export class AuthResponseUserDto {
   username: string;
 
   @IsString()
-  @IsOptional()
-  phone: string | null;
-
-  @IsString()
-  @IsOptional()
   email: string | null;
 
   @IsString()

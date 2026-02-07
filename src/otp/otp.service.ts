@@ -1,0 +1,171 @@
+import { Injectable, BadRequestException, ConflictException } from '@nestjs/common';
+import { JwtService } from '@nestjs/jwt';
+import { Cron, CronExpression } from '@nestjs/schedule';
+import { StringValue } from 'ms';
+import * as crypto from 'crypto';
+import { PrismaService } from '../prisma/prisma.service';
+import { AuthResponseDto } from '../auth/dto/auth-response.dto';
+
+export interface RegisterData {
+  email: string;
+  username: string;
+  passwordHash: string;
+}
+
+@Injectable()
+export class OtpService {
+  private readonly OTP_EXPIRES_IN_MINUTES = 3;
+  private readonly REGISTRATION_EXPIRES_IN_MINUTES = 10;
+  private readonly JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN;
+  private readonly REFRESH_TOKEN_EXPIRES_IN_DAYS = 1;
+
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly jwtService: JwtService,
+  ) {}
+
+  async create(token: string, registrationData?: RegisterData): Promise<void> {
+    const tokenHash = this.hashToken(token);
+
+    const existing = await this.prisma.otpVerification.findUnique({
+      where: { tokenHash },
+    });
+
+    if (existing && existing.otpExpiresAt > new Date()) {
+      throw new BadRequestException('ACTIVE_OTP_EXISTS');
+    }
+
+    const otpCode = this.generateOtpCode();
+    const otpExpiresAt = new Date(Date.now() + this.OTP_EXPIRES_IN_MINUTES * 60 * 1000);
+
+    if (existing) {
+      await this.prisma.otpVerification.update({
+        where: { tokenHash },
+        data: { otpCode, otpExpiresAt },
+      });
+    } else if (registrationData) {
+      const expiresAt = new Date(Date.now() + this.REGISTRATION_EXPIRES_IN_MINUTES * 60 * 1000);
+
+      await this.prisma.otpVerification.create({
+        data: {
+          tokenHash,
+          otpCode,
+          otpExpiresAt,
+          email: registrationData.email,
+          username: registrationData.username,
+          passwordHash: registrationData.passwordHash,
+          expiresAt,
+        },
+      });
+    } else {
+      throw new BadRequestException('NO_PENDING_REGISTRATION');
+    }
+  }
+
+  private generateOtpCode(): string {
+    return crypto.randomInt(100000, 999999).toString();
+  }
+
+  private hashToken(token: string): string {
+    return crypto.createHash('sha256').update(token).digest('hex');
+  }
+
+  async verify(token: string, code: string): Promise<AuthResponseDto> {
+    const tokenHash = this.hashToken(token);
+
+    const record = await this.prisma.otpVerification.findUnique({
+      where: { tokenHash },
+    });
+
+    if (!record) {
+      throw new BadRequestException('OTP_NOT_FOUND');
+    }
+
+    if (record.expiresAt < new Date()) {
+      await this.prisma.otpVerification.delete({ where: { id: record.id } });
+      throw new BadRequestException('REGISTRATION_EXPIRED');
+    }
+
+    if (record.otpExpiresAt < new Date()) {
+      throw new BadRequestException('OTP_EXPIRED');
+    }
+
+    if (!crypto.timingSafeEqual(Buffer.from(record.otpCode), Buffer.from(code))) {
+      throw new BadRequestException('INVALID_OTP_CODE');
+    }
+
+    let user;
+    try {
+      user = await this.prisma.user.create({
+        data: {
+          email: record.email,
+          username: record.username,
+          credentials: {
+            create: {
+              passwordHash: record.passwordHash,
+            },
+          },
+        },
+        select: {
+          id: true,
+          username: true,
+          email: true,
+          avatar: true,
+        },
+      });
+    } catch (error: any) {
+      if (error.code === 'P2002') {
+        await this.prisma.otpVerification.delete({ where: { id: record.id } });
+        throw new ConflictException('USER_ALREADY_EXISTS');
+      }
+      throw error;
+    }
+
+    await this.prisma.otpVerification.delete({ where: { id: record.id } });
+    const tokens = await this.generateTokens(user.id, user.username);
+
+    return {
+      ...tokens,
+      user,
+    };
+  }
+
+  private async generateTokens(
+    userId: string,
+    username: string,
+  ): Promise<{ accessToken: string; refreshToken: string }> {
+    const payload = { sub: userId, username };
+
+    const accessToken = this.jwtService.sign(payload, {
+      expiresIn: this.JWT_EXPIRES_IN as StringValue,
+    });
+
+    const refreshToken = crypto.randomBytes(32).toString('hex');
+    const tokenHash = crypto.createHash('sha256').update(refreshToken).digest('hex');
+
+    const expiresAt = new Date();
+    expiresAt.setDate(expiresAt.getDate() + this.REFRESH_TOKEN_EXPIRES_IN_DAYS);
+
+    await this.prisma.refreshToken.create({
+      data: {
+        userId,
+        tokenHash,
+        expiresAt,
+      },
+    });
+
+    return {
+      accessToken,
+      refreshToken,
+    };
+  }
+
+  @Cron(CronExpression.EVERY_MINUTE)
+  async cleanupExpiredRecords(): Promise<void> {
+    await this.prisma.otpVerification.deleteMany({
+      where: {
+        OR: [{ otpExpiresAt: { lt: new Date() } }, { expiresAt: { lt: new Date() } }],
+      },
+    });
+  }
+}
