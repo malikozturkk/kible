@@ -14,4 +14,11 @@ export class OtpController {
   async verify(@Request() req: any, @Body() verifyOtpDto: VerifyOtpDto): Promise<AuthResponseDto> {
     return this.otpService.verify(req.tempToken, verifyOtpDto.code);
   }
+
+  @Post('resend')
+  @UseGuards(OtpJwtGuard)
+  @HttpCode(HttpStatus.OK)
+  async resend(@Request() req: any): Promise<void> {
+    return this.otpService.resend(req.tempToken);
+  }
 }

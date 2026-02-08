@@ -24,42 +24,59 @@ export class OtpService {
     private readonly jwtService: JwtService,
   ) {}
 
-  async create(token: string, registrationData?: RegisterData): Promise<void> {
+  async create(token: string, registrationData: RegisterData): Promise<void> {
     const tokenHash = this.hashToken(token);
+    const otpCode = this.generateOtpCode();
+    const otpExpiresAt = new Date(Date.now() + this.OTP_EXPIRES_IN_MINUTES * 60 * 1000);
+    const expiresAt = new Date(Date.now() + this.REGISTRATION_EXPIRES_IN_MINUTES * 60 * 1000);
 
-    const existing = await this.prisma.otpVerification.findUnique({
-      where: { tokenHash },
+    await this.prisma.otpVerification.create({
+      data: {
+        tokenHash,
+        otpCode,
+        otpExpiresAt,
+        email: registrationData.email,
+        username: registrationData.username,
+        passwordHash: registrationData.passwordHash,
+        expiresAt,
+      },
     });
+  }
 
-    if (existing && existing.otpExpiresAt > new Date()) {
-      throw new BadRequestException('ACTIVE_OTP_EXISTS');
-    }
-
+  async resend(token: string): Promise<void> {
+    const tokenHash = this.hashToken(token);
+    const now = new Date();
     const otpCode = this.generateOtpCode();
     const otpExpiresAt = new Date(Date.now() + this.OTP_EXPIRES_IN_MINUTES * 60 * 1000);
 
-    if (existing) {
-      await this.prisma.otpVerification.update({
-        where: { tokenHash },
-        data: { otpCode, otpExpiresAt },
-      });
-    } else if (registrationData) {
-      const expiresAt = new Date(Date.now() + this.REGISTRATION_EXPIRES_IN_MINUTES * 60 * 1000);
+    const minExpiresAt = new Date(Date.now() + this.OTP_EXPIRES_IN_MINUTES * 60 * 1000);
+    const result = await this.prisma.otpVerification.updateMany({
+      where: {
+        tokenHash,
+        otpExpiresAt: { lte: now },
+        expiresAt: { gt: minExpiresAt },
+      },
+      data: { otpCode, otpExpiresAt },
+    });
 
-      await this.prisma.otpVerification.create({
-        data: {
-          tokenHash,
-          otpCode,
-          otpExpiresAt,
-          email: registrationData.email,
-          username: registrationData.username,
-          passwordHash: registrationData.passwordHash,
-          expiresAt,
-        },
-      });
-    } else {
+    const record = await this.prisma.otpVerification.findUnique({
+      where: { tokenHash },
+    });
+
+    if (!record) {
       throw new BadRequestException('NO_PENDING_REGISTRATION');
     }
+
+    if (record.expiresAt <= now) {
+      await this.prisma.otpVerification.delete({ where: { id: record.id } });
+      throw new BadRequestException('REGISTRATION_EXPIRED');
+    }
+
+    if (record.expiresAt <= minExpiresAt) {
+      throw new BadRequestException('INSUFFICIENT_TIME_FOR_NEW_OTP');
+    }
+
+    throw new BadRequestException('ACTIVE_OTP_EXISTS');
   }
 
   private generateOtpCode(): string {
@@ -164,7 +181,7 @@ export class OtpService {
   async cleanupExpiredRecords(): Promise<void> {
     await this.prisma.otpVerification.deleteMany({
       where: {
-        OR: [{ otpExpiresAt: { lt: new Date() } }, { expiresAt: { lt: new Date() } }],
+        expiresAt: { lt: new Date() },
       },
     });
   }

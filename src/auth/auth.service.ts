@@ -55,24 +55,23 @@ export class AuthService {
     const securePassword = password + this.PEPPER;
     const passwordHash = await bcrypt.hash(securePassword, 12);
 
-    const activeOtp = await this.prisma.otpVerification.findFirst({
+    await this.prisma.otpVerification.deleteMany({
       where: {
         OR: [{ email }, { username }],
-        otpExpiresAt: { gt: new Date() },
+        expiresAt: { lte: new Date() },
+      },
+    });
+
+    const activeRegistration = await this.prisma.otpVerification.findFirst({
+      where: {
+        OR: [{ email }, { username }],
         expiresAt: { gt: new Date() },
       },
     });
 
-    if (activeOtp) {
-      throw new ConflictException('ACTIVE_OTP_EXISTS');
+    if (activeRegistration) {
+      throw new ConflictException('ACTIVE_REGISTRATION_EXISTS');
     }
-
-    await this.prisma.otpVerification.deleteMany({
-      where: {
-        OR: [{ email }, { username }],
-        otpExpiresAt: { lte: new Date() },
-      },
-    });
 
     const tempToken = this.jwtService.sign(
       { email, username, purpose: 'register' },
