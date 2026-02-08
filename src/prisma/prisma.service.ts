@@ -12,7 +12,7 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
     const adapter = new PrismaPg({ connectionString });
     super({
       adapter,
-      log: process.env.NODE_ENV === 'development' ? ['query', 'info', 'warn', 'error'] : ['error'],
+      log: ['error'],
     });
   }
 
