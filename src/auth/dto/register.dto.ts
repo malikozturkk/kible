@@ -4,7 +4,7 @@ export class RegisterDto {
   @IsString()
   @IsNotEmpty()
   @Matches(/^[a-zA-Z0-9_]+$/, {
-    message: 'Username must contain only letters, numbers, and underscores',
+    message: 'INVALID_USERNAME_FORMAT',
   })
   username: string;
 
@@ -15,7 +15,7 @@ export class RegisterDto {
   @IsString()
   @IsNotEmpty()
   @MinLength(8, {
-    message: 'Password must be at least 8 characters long',
+    message: 'PASSWORD_TOO_SHORT',
   })
   password: string;
 }

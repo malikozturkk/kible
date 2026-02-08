@@ -52,9 +52,8 @@ export class AuthController {
   async logout(
     @Request() req: AuthenticatedRequest,
     @Body() refreshTokenDto: RefreshTokenDto,
-  ): Promise<{ message: string }> {
+  ): Promise<void> {
     await this.authService.logout(req.user.id, refreshTokenDto.refreshToken);
-    return { message: 'Logged out successfully' };
   }
 
   @Get('me')

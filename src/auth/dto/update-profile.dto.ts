@@ -4,7 +4,7 @@ export class UpdateProfileDto {
   @IsString()
   @IsOptional()
   @Matches(/^[a-zA-Z0-9_]+$/, {
-    message: 'Username must contain only letters, numbers, and underscores',
+    message: 'INVALID_USERNAME_FORMAT',
   })
   username?: string;
 

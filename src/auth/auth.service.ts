@@ -83,7 +83,6 @@ export class AuthService {
 
     return {
       tempToken,
-      message: 'OTP_SENT_TO_EMAIL',
     };
   }
 
@@ -102,14 +101,14 @@ export class AuthService {
     });
 
     if (!user || !user.credentials) {
-      throw new UnauthorizedException('Invalid credentials');
+      throw new UnauthorizedException('INVALID_CREDENTIALS');
     }
 
     const securePassword = password + this.PEPPER;
     const isValid = await bcrypt.compare(securePassword, user.credentials.passwordHash);
 
     if (!isValid) {
-      throw new UnauthorizedException('Invalid credentials');
+      throw new UnauthorizedException('INVALID_CREDENTIALS');
     }
 
     const tokens = await this.generateTokens(user.id, user.username);
@@ -142,7 +141,7 @@ export class AuthService {
     });
 
     if (!storedToken || storedToken.isRevoked || storedToken.expiresAt < new Date()) {
-      throw new UnauthorizedException('Invalid or expired refresh token');
+      throw new UnauthorizedException('INVALID_OR_EXPIRED_REFRESH_TOKEN');
     }
 
     const tokens = await this.generateTokens(storedToken.user.id, storedToken.user.username);
@@ -195,7 +194,7 @@ export class AuthService {
     });
 
     if (!user) {
-      throw new UnauthorizedException('User not found');
+      throw new UnauthorizedException('USER_NOT_FOUND');
     }
 
     return user;
@@ -215,7 +214,7 @@ export class AuthService {
       });
 
       if (existingUser) {
-        throw new ConflictException('Username already exists');
+        throw new ConflictException('USERNAME_ALREADY_EXISTS');
       }
     }
 
