@@ -5,10 +5,12 @@ import { OtpService } from './otp.service';
 import { OtpController } from './otp.controller';
 import { OtpJwtGuard } from './guards/otp-jwt.guard';
 import { PrismaModule } from '../prisma/prisma.module';
+import { EmailModule } from '../email/email.module';
 
 @Module({
   imports: [
     PrismaModule,
+    EmailModule,
     JwtModule.register({
       secret: process.env.JWT_SECRET,
       signOptions: {

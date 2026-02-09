@@ -5,6 +5,7 @@ import { StringValue } from 'ms';
 import * as crypto from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuthResponseDto } from '../auth/dto/auth-response.dto';
+import { EmailService } from '../email/email.service';
 
 export interface RegisterData {
   email: string;
@@ -22,6 +23,7 @@ export class OtpService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly jwtService: JwtService,
+    private readonly emailService: EmailService,
   ) {}
 
   async create(token: string, registrationData: RegisterData): Promise<void> {
@@ -41,6 +43,8 @@ export class OtpService {
         expiresAt,
       },
     });
+
+    await this.sendOtpEmail(registrationData.email, registrationData.username, otpCode);
   }
 
   async resend(token: string): Promise<void> {
@@ -76,7 +80,18 @@ export class OtpService {
       throw new BadRequestException('INSUFFICIENT_TIME_FOR_NEW_OTP');
     }
 
-    throw new BadRequestException('ACTIVE_OTP_EXISTS');
+    if (result.count === 0) {
+      throw new BadRequestException('ACTIVE_OTP_EXISTS');
+    }
+    await this.sendOtpEmail(record.email, record.username, otpCode);
+  }
+
+  private async sendOtpEmail(email: string, name: string, code: string): Promise<void> {
+    try {
+      await this.emailService.sendTemplateEmail(email, name, { code });
+    } catch (error) {
+      console.error(`OTP e-postası gönderilemedi: ${email}`, error);
+    }
   }
 
   private generateOtpCode(): string {
