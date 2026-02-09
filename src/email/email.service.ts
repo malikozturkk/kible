@@ -35,10 +35,10 @@ export class EmailService {
                 Name: toName,
               },
             ],
+            Subject: 'NamazGo Doğrulama Kodunuz',
             TemplateID: this.templateId,
-            TextPart:
-              'Bu e-posta, NamazGo hesabınızı oluşturma işlemini tamamlamak için gerekli olan tek kullanımlık doğrulama kodunu içermektedir.',
             TemplateLanguage: true,
+            TextPart: `Merhaba ${toName}, NamazGo doğrulama kodunuz: ${variables.code}. Bu kod 3 dakika geçerlidir.`,
             Variables: { ...variables, username: toName },
           },
         ],
