@@ -62,6 +62,8 @@ export class AuthService {
       },
     });
 
+    await this.otpService.cleanupStaleRegistrations(email, username);
+
     const activeRegistration = await this.prisma.otpVerification.findFirst({
       where: {
         OR: [{ email }, { username }],

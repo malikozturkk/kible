@@ -36,6 +36,8 @@ export class EmailService {
               },
             ],
             TemplateID: this.templateId,
+            TextPart:
+              'Bu e-posta, NamazGo hesabınızı oluşturma işlemini tamamlamak için gerekli olan tek kullanımlık doğrulama kodunu içermektedir.',
             TemplateLanguage: true,
             Variables: { ...variables, username: toName },
           },

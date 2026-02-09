@@ -77,6 +77,10 @@ export class OtpService {
     }
 
     if (record.expiresAt <= minExpiresAt) {
+      if (record.otpExpiresAt <= now) {
+        await this.prisma.otpVerification.delete({ where: { id: record.id } });
+        throw new BadRequestException('REGISTRATION_EXPIRED');
+      }
       throw new BadRequestException('INSUFFICIENT_TIME_FOR_NEW_OTP');
     }
 
@@ -84,6 +88,19 @@ export class OtpService {
       throw new BadRequestException('ACTIVE_OTP_EXISTS');
     }
     await this.sendOtpEmail(record.email, record.username, otpCode);
+  }
+
+  async cleanupStaleRegistrations(email: string, username: string): Promise<void> {
+    const now = new Date();
+    const minExpiresAt = new Date(Date.now() + this.OTP_EXPIRES_IN_MINUTES * 60 * 1000);
+
+    await this.prisma.otpVerification.deleteMany({
+      where: {
+        OR: [{ email }, { username }],
+        otpExpiresAt: { lte: now },
+        expiresAt: { gt: now, lte: minExpiresAt },
+      },
+    });
   }
 
   private async sendOtpEmail(email: string, name: string, code: string): Promise<void> {
