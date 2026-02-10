@@ -88,14 +88,15 @@ export class AuthService {
   }
 
   async login(loginDto: LoginDto): Promise<AuthResponseDto> {
-    const { email, password } = loginDto;
+    const { identifier, password } = loginDto;
 
-    if (!email) {
-      throw new BadRequestException('EMAIL_REQUIRED');
+    if (!identifier) {
+      throw new BadRequestException('IDENTIFIER_REQUIRED');
     }
+    const where = this.resolveIdentifierWhereClause(identifier);
 
     const user = await this.prisma.user.findUnique({
-      where: { email },
+      where,
       include: {
         credentials: true,
       },
@@ -234,6 +235,17 @@ export class AuthService {
     });
 
     return user;
+  }
+
+  private resolveIdentifierWhereClause(
+    identifier: string,
+  ): { email: string } | { username: string } {
+    const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+    if (EMAIL_REGEX.test(identifier)) {
+      return { email: identifier };
+    }
+    return { username: identifier };
   }
 
   private async generateTokens(
