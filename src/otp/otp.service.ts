@@ -105,7 +105,7 @@ export class OtpService {
 
   private async sendOtpEmail(email: string, name: string, code: string): Promise<void> {
     try {
-      await this.emailService.sendTemplateEmail(email, name, { code });
+      await this.emailService.sendOtpEmail(email, name, { code });
     } catch (error) {
       console.error(`OTP e-postası gönderilemedi: ${email}`, error);
     }

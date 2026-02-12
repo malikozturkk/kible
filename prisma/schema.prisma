@@ -6,10 +6,6 @@ datasource db {
   provider = "postgresql"
 }
 
-//////////////////////////////////////////////////////
-// MODELS
-//////////////////////////////////////////////////////
-
 model User {
   id            String          @id @default(uuid())
   email         String          @unique
@@ -69,4 +65,19 @@ model OtpVerification {
   createdAt     DateTime @default(now())
 
   @@map("otp_verifications")
+}
+
+//////////////////////////////////////////////////////
+
+model PasswordReset {
+  id         String   @id @default(uuid())
+  userId     String
+  tokenHash  String
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  failedAttempts Int  @default(0)
+  isUsed     Boolean  @default(false)
+
+  @@index([userId])
+  @@map("password_resets")
 }

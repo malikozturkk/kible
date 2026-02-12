@@ -18,6 +18,10 @@ import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { AuthResponseDto } from './dto/auth-response.dto';
 import { RegisterResponseDto } from './dto/register-response.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
+import { PasswordResetService } from './password-reset.service';
+import { ForgotPasswordDto } from './dto/forgot-password.dto';
+import { ValidateResetTokenDto } from './dto/validate-reset-token.dto';
+import { ResetPasswordDto } from './dto/reset-password.dto';
 
 type AuthenticatedRequest = ExpressRequest & {
   user: {
@@ -27,7 +31,10 @@ type AuthenticatedRequest = ExpressRequest & {
 
 @Controller('auth')
 export class AuthController {
-  constructor(private readonly authService: AuthService) {}
+  constructor(
+    private readonly authService: AuthService,
+    private readonly passwordResetService: PasswordResetService,
+  ) {}
 
   @Post('register')
   async register(@Body() registerDto: RegisterDto): Promise<RegisterResponseDto> {
@@ -69,5 +76,23 @@ export class AuthController {
     @Body() updateProfileDto: UpdateProfileDto,
   ): Promise<AuthResponseDto['user']> {
     return this.authService.updateProfile(req.user.id, updateProfileDto);
+  }
+
+  @Post('forgot-password')
+  async forgotPassword(@Body() forgotPasswordDto: ForgotPasswordDto) {
+    await this.passwordResetService.requestReset(forgotPasswordDto.email);
+    return {
+      message: 'FORGOT_PASSWORD_EMAIL_SENT',
+    };
+  }
+
+  @Post('validate-reset-token')
+  async validateResetToken(@Body() validateResetTokenDto: ValidateResetTokenDto) {
+    return this.passwordResetService.validateToken(validateResetTokenDto);
+  }
+
+  @Post('reset-password')
+  async resetPassword(@Body() resetPasswordDto: ResetPasswordDto) {
+    return this.passwordResetService.resetPassword(resetPasswordDto);
   }
 }
