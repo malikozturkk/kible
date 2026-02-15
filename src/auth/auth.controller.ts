@@ -22,12 +22,7 @@ import { PasswordResetService } from './password-reset.service';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { ValidateResetTokenDto } from './dto/validate-reset-token.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
-
-type AuthenticatedRequest = ExpressRequest & {
-  user: {
-    id: string;
-  };
-};
+import type { AuthenticatedRequest } from 'src/auth/strategies/jwt.strategy';
 
 @Controller('auth')
 export class AuthController {

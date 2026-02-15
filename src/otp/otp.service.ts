@@ -145,22 +145,43 @@ export class OtpService {
 
     let user;
     try {
-      user = await this.prisma.user.create({
-        data: {
-          email: record.email,
-          username: record.username,
-          credentials: {
-            create: {
-              passwordHash: record.passwordHash,
+      user = await this.prisma.$transaction(async (tx) => {
+        const createdUser = await tx.user.create({
+          data: {
+            email: record.email,
+            username: record.username,
+            credentials: {
+              create: {
+                passwordHash: record.passwordHash,
+              },
+            },
+            xp: {
+              create: {
+                xp: 0,
+                totalXp: 0,
+              },
+            },
+            streak: {
+              create: {
+                currentStreak: 0,
+                longestStreak: 0,
+                streakFreezeCount: 0,
+              },
             },
           },
-        },
-        select: {
-          id: true,
-          username: true,
-          email: true,
-          avatar: true,
-        },
+          select: {
+            id: true,
+            username: true,
+            email: true,
+            avatar: true,
+          },
+        });
+
+        await tx.otpVerification.delete({
+          where: { id: record.id },
+        });
+
+        return createdUser;
       });
     } catch (error: any) {
       if (error.code === 'P2002') {
@@ -170,7 +191,6 @@ export class OtpService {
       throw error;
     }
 
-    await this.prisma.otpVerification.delete({ where: { id: record.id } });
     const tokens = await this.generateTokens(user.id, user.username);
 
     return {
