@@ -1,4 +1,4 @@
-import { IsArray, IsInt, IsString } from 'class-validator';
+import { IsArray, IsInt, IsString, IsOptional } from 'class-validator';
 import { StepDto } from './step.dto';
 
 export class GuideResponseDto {
@@ -11,7 +11,18 @@ export class GuideResponseDto {
   @IsInt()
   totalSteps: number;
 
+  @IsOptional()
+  @IsInt()
+  totalRakats?: number;
+
+  @IsOptional()
+  @IsInt()
+  sunnahBefore?: number;
+
+  @IsOptional()
+  @IsInt()
+  sunnahAfter?: number;
+
   @IsArray()
   steps: StepDto[];
 }
-

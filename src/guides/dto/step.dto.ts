@@ -1,4 +1,4 @@
-import { IsInt, IsOptional, IsString, IsArray } from 'class-validator';
+import { IsInt, IsOptional, IsString, IsArray, IsBoolean } from 'class-validator';
 
 export class StepDto {
   @IsInt()
@@ -29,5 +29,17 @@ export class StepDto {
   @IsOptional()
   @IsArray()
   tips?: string[];
+
+  @IsOptional()
+  @IsString()
+  recitation?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  isFard?: boolean;
+
+  @IsOptional()
+  @IsInt()
+  rekat?: number;
 }
 
