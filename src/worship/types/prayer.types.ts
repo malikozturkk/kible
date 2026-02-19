@@ -26,6 +26,22 @@ export interface MetaDTO {
 
 export type PrayerTimesRecord = Record<PrayerName, PrayerTimeDTO>;
 
+export interface RamadanDTO {
+  ramadanDay: number;
+  totalDays: number;
+  remainingDays: number;
+}
+
+export interface FastingDTO {
+  isRamadan: boolean;
+  isFastingTime: boolean;
+  fastingStart: string | null;
+  fastingEnd: string | null;
+  remainingSeconds: number;
+  progressPercent: number;
+  ramadan: RamadanDTO | null;
+}
+
 export interface WorshipResponseDTO {
   meta: MetaDTO;
   times: PrayerTimesRecord;
@@ -34,7 +50,7 @@ export interface WorshipResponseDTO {
   secondsUntilNext: number;
   lastPrayer: PrayerName;
   dayProgressPercent: number;
-  fastingProgress: number | null;
+  fasting: FastingDTO;
 }
 
 export interface AdhanParams {

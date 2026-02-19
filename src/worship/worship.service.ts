@@ -43,11 +43,7 @@ export class WorshipService {
 
     const fajrEntry = entries.find((e) => e.key === 'fajr')!;
     const maghribEntry = entries.find((e) => e.key === 'maghrib')!;
-    const fastingProgress = this.fastingProgressService.calculate(
-      fajrEntry.time,
-      maghribEntry.time,
-      now,
-    );
+    const fasting = this.fastingProgressService.calculate(fajrEntry.time, maghribEntry.time, now);
 
     const dayProgressPercent = this.dayProgressService.calculate(now);
 
@@ -74,7 +70,7 @@ export class WorshipService {
       secondsUntilNext,
       lastPrayer,
       dayProgressPercent,
-      fastingProgress,
+      fasting,
     };
   }
 }
