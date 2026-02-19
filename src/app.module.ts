@@ -6,9 +6,17 @@ import { PrismaModule } from './prisma/prisma.module';
 import { AuthModule } from './auth/auth.module';
 import { GamificationModule } from './gamification/gamification.module';
 import { GuidesModule } from './guides/guides.module';
+import { WorshipModule } from './worship/worship.module';
 
 @Module({
-  imports: [PrismaModule, AuthModule, GamificationModule, GuidesModule, ScheduleModule.forRoot()],
+  imports: [
+    PrismaModule,
+    AuthModule,
+    GamificationModule,
+    GuidesModule,
+    WorshipModule,
+    ScheduleModule.forRoot(),
+  ],
   controllers: [AppController],
   providers: [AppService],
 })

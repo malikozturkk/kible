@@ -1927,6 +1927,11 @@ acorn@^8.11.0, acorn@^8.15.0, acorn@^8.4.1:
   resolved "https://registry.yarnpkg.com/acorn/-/acorn-8.15.0.tgz#a360898bc415edaac46c8241f6383975b930b816"
   integrity sha512-NZyJarBfL7nWwIq+FDL6Zp/yHEhePMNnnJ0y3qfieCrmNvYct8uvtiV41UvlSe6apAfk0fY1FbWx+NwfmpvtTg==
 
+adhan@^4.4.3:
+  version "4.4.3"
+  resolved "https://registry.yarnpkg.com/adhan/-/adhan-4.4.3.tgz#a8bccaeadd0669b609657d4069118562dba4763f"
+  integrity sha512-568KkQd8OMLUj7o7+d2FDcm6vZHWQrE7vsm/Evssh8sfUDpPyaboj3PVsScZAr7L7sNRgPrtLMmDZZfM7VeAYw==
+
 ajv-formats@3.0.1:
   version "3.0.1"
   resolved "https://registry.yarnpkg.com/ajv-formats/-/ajv-formats-3.0.1.tgz#3d5dc762bca17679c3c2ea7e90ad6b7532309578"
@@ -4232,7 +4237,7 @@ lru.min@^1.0.0, lru.min@^1.1.0:
   resolved "https://registry.yarnpkg.com/lru.min/-/lru.min-1.1.4.tgz#6ea1737a8c1ba2300cc87ad46910a4bdffa0117b"
   integrity sha512-DqC6n3QQ77zdFpCMASA1a3Jlb64Hv2N2DciFGkO/4L9+q/IpIAuRlKOvCXabtRW6cQf8usbmM6BE/TOPysCdIA==
 
-luxon@~3.7.0:
+luxon@^3.7.2, luxon@~3.7.0:
   version "3.7.2"
   resolved "https://registry.yarnpkg.com/luxon/-/luxon-3.7.2.tgz#d697e48f478553cca187a0f8436aff468e3ba0ba"
   integrity sha512-vtEhXh/gNjI9Yg1u4jX/0YVPMvxzHuGgCm6tC5kZyb08yjGWGnqAjGJvcXbqQR2P3MyMEFnRbpcdFS6PBcLqew==
