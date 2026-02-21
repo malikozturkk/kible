@@ -19,7 +19,9 @@ export interface MetaDTO {
   latitude: number;
   longitude: number;
   timezone: string;
-  date: string | null;
+  gregorianDate: string | null;
+  hijriDate: string | null;
+  hijriMonthName: string | null;
   calculationMethod: string;
   madhab: string;
 }

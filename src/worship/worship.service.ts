@@ -54,13 +54,27 @@ export class WorshipService {
       now,
       timezone,
     );
+    const hijriLocale = 'tr-TR-u-ca-islamic-umalqura';
+    const hijriFormatter = new Intl.DateTimeFormat(hijriLocale, {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+    });
+    const hijriMonthNameFormatter = new Intl.DateTimeFormat(hijriLocale, {
+      month: 'long',
+    });
+
+    const hijriDate = hijriFormatter.format(zonedDate.toJSDate());
+    const hijriMonthName = hijriMonthNameFormatter.format(zonedDate.toJSDate());
 
     return {
       meta: {
         latitude,
         longitude,
         timezone,
-        date: zonedDate.toISODate(),
+        gregorianDate: zonedDate.toISODate(),
+        hijriDate,
+        hijriMonthName,
         calculationMethod: 'Turkey',
         madhab: 'Shafi',
       },
