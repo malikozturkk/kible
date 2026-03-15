@@ -206,7 +206,7 @@ export class AuthService {
     userId: string,
     updateProfileDto: UpdateProfileDto,
   ): Promise<AuthResponseDto['user']> {
-    const { username, avatar } = updateProfileDto;
+    const { username, avatar, currentPassword, newPassword } = updateProfileDto;
     if (username) {
       const existingUser = await this.prisma.user.findFirst({
         where: {
@@ -218,6 +218,35 @@ export class AuthService {
       if (existingUser) {
         throw new ConflictException('USERNAME_ALREADY_EXISTS');
       }
+    }
+
+    if (currentPassword || newPassword) {
+      if (!currentPassword || !newPassword) {
+        throw new BadRequestException('PASSWORD_FIELDS_REQUIRED');
+      }
+
+      const user = await this.prisma.user.findUnique({
+        where: { id: userId },
+        include: { credentials: true },
+      });
+
+      if (!user || !user.credentials) {
+        throw new UnauthorizedException('USER_NOT_FOUND');
+      }
+
+      const securePassword = currentPassword + this.PEPPER;
+      const isPasswordValid = await bcrypt.compare(securePassword, user.credentials.passwordHash);
+
+      if (!isPasswordValid) {
+        throw new UnauthorizedException('INVALID_CURRENT_PASSWORD');
+      }
+
+      const hashedPassword = await bcrypt.hash(newPassword + this.PEPPER, 10);
+
+      await this.prisma.userCredential.update({
+        where: { userId },
+        data: { passwordHash: hashedPassword },
+      });
     }
 
     const user = await this.prisma.user.update({

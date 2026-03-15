@@ -1,4 +1,4 @@
-import { IsString, IsOptional, Matches } from 'class-validator';
+import { IsString, IsOptional, Matches, MinLength } from 'class-validator';
 
 export class UpdateProfileDto {
   @IsString()
@@ -11,4 +11,13 @@ export class UpdateProfileDto {
   @IsString()
   @IsOptional()
   avatar?: string;
+
+  @IsString()
+  @IsOptional()
+  currentPassword?: string;
+
+  @IsString()
+  @IsOptional()
+  @MinLength(8, { message: 'PASSWORD_TOO_SHORT' })
+  newPassword?: string;
 }
