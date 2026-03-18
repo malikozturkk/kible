@@ -8,6 +8,7 @@ import {
   Request,
   HttpCode,
   HttpStatus,
+  Param,
 } from '@nestjs/common';
 import { Request as ExpressRequest } from 'express';
 import { AuthService } from './auth.service';
@@ -58,10 +59,10 @@ export class AuthController {
     await this.authService.logout(req.user.id, refreshTokenDto.refreshToken);
   }
 
-  @Get('me')
+  @Get(':username')
   @UseGuards(JwtAuthGuard)
-  async me(@Request() req: AuthenticatedRequest) {
-    return this.authService.me(req.user.id);
+  async getProfile(@Request() req: AuthenticatedRequest, @Param('username') username: string) {
+    return this.authService.getProfileByUsername(username, req.user.id);
   }
 
   @Patch('profile')
@@ -89,5 +90,24 @@ export class AuthController {
   @Post('reset-password')
   async resetPassword(@Body() resetPasswordDto: ResetPasswordDto) {
     return this.passwordResetService.resetPassword(resetPasswordDto);
+  }
+
+  @Post(':username/follow')
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(HttpStatus.OK)
+  async toggleFollow(@Request() req: AuthenticatedRequest, @Param('username') username: string) {
+    return this.authService.toggleFollow(req.user.id, username);
+  }
+
+  @Get(':username/followers')
+  @UseGuards(JwtAuthGuard)
+  async getFollowers(@Param('username') username: string) {
+    return this.authService.getFollowers(username);
+  }
+
+  @Get(':username/following')
+  @UseGuards(JwtAuthGuard)
+  async getFollowing(@Param('username') username: string) {
+    return this.authService.getFollowing(username);
   }
 }

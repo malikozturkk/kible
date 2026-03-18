@@ -3,6 +3,7 @@ import {
   UnauthorizedException,
   ConflictException,
   BadRequestException,
+  NotFoundException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { StringValue } from 'ms';
@@ -182,24 +183,78 @@ export class AuthService {
     });
   }
 
-  async me(userId: string) {
-    const user = await this.prisma.user.findUnique({
-      where: { id: userId },
-      select: {
-        id: true,
-        username: true,
-        email: true,
-        avatar: true,
-        createdAt: true,
-        updatedAt: true,
+  private getProfileSelect(isOwner: boolean) {
+    const base = {
+      username: true,
+      avatar: true,
+      createdAt: true,
+    };
+
+    const ownerOnly = {
+      id: true,
+      email: true,
+      updatedAt: true,
+    };
+
+    return isOwner ? { ...base, ...ownerOnly } : base;
+  }
+
+  async getProfileByUsername(username: string, viewerId: string) {
+    const target = await this.prisma.user
+      .findUniqueOrThrow({
+        where: { username },
+        select: { id: true },
+      })
+      .catch(() => {
+        throw new NotFoundException('USER_NOT_FOUND');
+      });
+
+    const isOwner = viewerId === target.id;
+
+    const [profile, mutualFollowers, isFollowing, followerCount, followingCount] =
+      await Promise.all([
+        this.prisma.user.findUnique({
+          where: { id: target.id },
+          select: this.getProfileSelect(isOwner),
+        }),
+        this.getMutualFollowers(isOwner, target.id, viewerId),
+        this.getIsFollowing(isOwner, target.id, viewerId),
+        this.prisma.follow.count({ where: { followingId: target.id } }),
+        this.prisma.follow.count({ where: { followerId: target.id } }),
+      ]);
+
+    return {
+      ...profile,
+      isFollowing: isOwner ? null : !!isFollowing,
+      followerCount,
+      followingCount,
+      mutualFollowers: {
+        count: mutualFollowers.length,
+        preview: mutualFollowers.map((f) => f.follower),
       },
+    };
+  }
+
+  private getMutualFollowers(isOwner: boolean, targetId: string, viewerId: string) {
+    if (isOwner) return Promise.resolve([]);
+
+    return this.prisma.follow.findMany({
+      where: {
+        followingId: targetId,
+        follower: { followers: { some: { followerId: viewerId } } },
+      },
+      select: { follower: { select: { username: true, avatar: true } } },
+      take: 3,
     });
+  }
 
-    if (!user) {
-      throw new UnauthorizedException('USER_NOT_FOUND');
-    }
+  private getIsFollowing(isOwner: boolean, targetId: string, viewerId: string) {
+    if (isOwner) return Promise.resolve(null);
 
-    return user;
+    return this.prisma.follow.findUnique({
+      where: { followerId_followingId: { followerId: viewerId, followingId: targetId } },
+      select: { id: true },
+    });
   }
 
   async updateProfile(
@@ -308,5 +363,102 @@ export class AuthService {
       accessToken,
       refreshToken,
     };
+  }
+
+  async getFollowers(username: string) {
+    const target = await this.prisma.user.findUnique({
+      where: { username },
+      select: { id: true },
+    });
+
+    if (!target) {
+      throw new NotFoundException('USER_NOT_FOUND');
+    }
+
+    const follows = await this.prisma.follow.findMany({
+      where: { followingId: target.id },
+      select: {
+        follower: {
+          select: {
+            username: true,
+            avatar: true,
+          },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    return follows.map((f) => f.follower);
+  }
+
+  async getFollowing(username: string) {
+    const target = await this.prisma.user.findUnique({
+      where: { username },
+      select: { id: true },
+    });
+
+    if (!target) {
+      throw new NotFoundException('USER_NOT_FOUND');
+    }
+
+    const follows = await this.prisma.follow.findMany({
+      where: { followerId: target.id },
+      select: {
+        following: {
+          select: {
+            username: true,
+            avatar: true,
+          },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    return follows.map((f) => f.following);
+  }
+
+  async toggleFollow(currentUserId: string, targetUsername: string) {
+    const target = await this.prisma.user.findUnique({
+      where: { username: targetUsername },
+      select: { id: true },
+    });
+
+    if (!target) {
+      throw new NotFoundException('USER_NOT_FOUND');
+    }
+
+    if (currentUserId === target.id) {
+      throw new BadRequestException('CANNOT_FOLLOW_YOURSELF');
+    }
+
+    const existing = await this.prisma.follow.findUnique({
+      where: {
+        followerId_followingId: {
+          followerId: currentUserId,
+          followingId: target.id,
+        },
+      },
+    });
+
+    if (existing) {
+      await this.prisma.follow.delete({
+        where: {
+          followerId_followingId: {
+            followerId: currentUserId,
+            followingId: target.id,
+          },
+        },
+      });
+      return { following: false };
+    }
+
+    await this.prisma.follow.create({
+      data: {
+        followerId: currentUserId,
+        followingId: target.id,
+      },
+    });
+
+    return { following: true };
   }
 }
