@@ -140,3 +140,18 @@ model UserStreak {
   @@index([currentStreak])
   @@map("user_streaks")
 }
+
+//////////////////////////////////////////////////////
+
+model Question {
+  id            String   @id @default(uuid())
+  guideId       String
+  question      String
+  options       String[]
+  correctAnswer String
+  difficulty    Int?
+  createdAt     DateTime @default(now())
+
+  @@index([guideId])
+  @@map("questions")
+}

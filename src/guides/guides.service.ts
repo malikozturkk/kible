@@ -1,4 +1,5 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
+import { QuestionsService } from '../questions/questions.service';
 import { GuideResponseDto } from './dto/guide-response.dto';
 import { GuideType } from './enums/guide-type.enum';
 import { GuideStrategy } from './strategies/guide.strategy';
@@ -24,6 +25,7 @@ export class GuidesService {
     private readonly maghribStrategy: MaghribStrategy,
     private readonly ishaStrategy: IshaStrategy,
     private readonly jumuahStrategy: JumuahStrategy,
+    private readonly questionsService: QuestionsService,
   ) {
     this.strategies = [
       this.wuduStrategy,
@@ -42,6 +44,16 @@ export class GuidesService {
     if (!strategy) {
       throw new BadRequestException('GUIDE_NOT_FOUND');
     }
-    return strategy.getGuide();
+    const guide = await strategy.getGuide();
+    const randomQuestion = await this.questionsService.tryPickRandomQuestion(guide.id);
+    if (randomQuestion && guide.steps.length > 0) {
+      const stepNumber = Math.floor(Math.random() * guide.steps.length) + 1;
+      const step =
+        guide.steps.find((s) => s.step === stepNumber) ?? guide.steps[stepNumber - 1];
+      if (step) {
+        step.randomQuestion = randomQuestion;
+      }
+    }
+    return guide;
   }
 }

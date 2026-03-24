@@ -1,4 +1,4 @@
-import { IsArray, IsInt, IsString, IsOptional } from 'class-validator';
+import { IsArray, IsInt, IsOptional, IsString } from 'class-validator';
 import { StepDto } from './step.dto';
 
 export class GuideResponseDto {

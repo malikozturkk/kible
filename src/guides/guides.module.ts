@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { QuestionsModule } from '../questions/questions.module';
 import { GuidesController } from './guides.controller';
 import { GuidesService } from './guides.service';
 import { WuduStrategy } from './strategies/wudu.strategy';
@@ -11,7 +12,7 @@ import { IshaStrategy } from './strategies/isha.strategy';
 import { JumuahStrategy } from './strategies/jumuah.strategy';
 
 @Module({
-  imports: [],
+  imports: [QuestionsModule],
   controllers: [GuidesController],
   providers: [
     GuidesService,

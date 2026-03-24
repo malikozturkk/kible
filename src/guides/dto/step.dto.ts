@@ -1,4 +1,6 @@
-import { IsInt, IsOptional, IsString, IsArray, IsBoolean } from 'class-validator';
+import { Type } from 'class-transformer';
+import { IsInt, IsOptional, IsString, IsArray, IsBoolean, ValidateNested } from 'class-validator';
+import { RandomQuestionPublicDto } from '../../questions/dto/random-question.dto';
 
 export class StepDto {
   @IsInt()
@@ -45,5 +47,10 @@ export class StepDto {
   @IsOptional()
   @IsString()
   type?: string;
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => RandomQuestionPublicDto)
+  randomQuestion?: RandomQuestionPublicDto | null;
 }
 
