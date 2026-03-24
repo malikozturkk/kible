@@ -49,6 +49,6 @@ export class QuestionsService {
     }
     const normalized = (s: string) => s.trim().toLocaleLowerCase('tr-TR');
     const isCorrect = normalized(answer) === normalized(row.correctAnswer);
-    return { isCorrect };
+    return { isCorrect, correctAnswer: row.correctAnswer };
   }
 }
