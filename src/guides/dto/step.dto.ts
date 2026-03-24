@@ -41,5 +41,9 @@ export class StepDto {
   @IsOptional()
   @IsInt()
   rekat?: number;
+
+  @IsOptional()
+  @IsString()
+  type?: string;
 }
 

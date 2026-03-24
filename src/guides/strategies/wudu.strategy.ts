@@ -14,6 +14,7 @@ export class WuduStrategy extends GuideStrategy {
       {
         step: 1,
         totalSteps: 9,
+        type: 'intend',
         name: 'Niyet etmek',
         bodyPart: 'Kalpten',
         repeat: '1 kez',
@@ -25,6 +26,7 @@ export class WuduStrategy extends GuideStrategy {
       {
         step: 2,
         totalSteps: 9,
+        type: 'wash_hands',
         name: 'Ellerin yıkanması',
         bodyPart: 'Eller',
         repeat: '3 kez',
@@ -35,6 +37,7 @@ export class WuduStrategy extends GuideStrategy {
       {
         step: 3,
         totalSteps: 9,
+        type: 'wash_mouth',
         name: 'Ağızın çalkalanması',
         bodyPart: 'Ağız',
         repeat: '3 kez',
@@ -45,6 +48,7 @@ export class WuduStrategy extends GuideStrategy {
       {
         step: 4,
         totalSteps: 9,
+        type: 'wash_nose',
         name: 'Burnun temizlenmesi',
         bodyPart: 'Burun',
         repeat: '3 kez',
@@ -55,6 +59,7 @@ export class WuduStrategy extends GuideStrategy {
       {
         step: 5,
         totalSteps: 9,
+        type: 'wash_face',
         name: 'Yüzün yıkanması',
         bodyPart: 'Yüz',
         repeat: '3 kez',
@@ -65,10 +70,11 @@ export class WuduStrategy extends GuideStrategy {
       {
         step: 6,
         totalSteps: 9,
+        type: 'wash_arms',
         name: 'Kolların dirseklere kadar yıkanması',
         bodyPart: 'Kollar',
         repeat: '3 kez (her kol)',
-        shortDescription: 'Sağ kol, sonra sol kol yıkanır',
+        shortDescription: 'Önce sağ kol, sonra sol kol yıkanır',
         description:
           'Önce sağ kol ucu parmaklara sonra dirseklere kadar, sonra sol kol aynı şekilde üçer kez yıkanır.',
         tips: ['Dirsekler de su ile temas etmeli', 'Parmak uçları unutulmamalı'],
@@ -76,6 +82,7 @@ export class WuduStrategy extends GuideStrategy {
       {
         step: 7,
         totalSteps: 9,
+        type: 'anoint_head',
         name: 'Başın mesh edilmesi',
         bodyPart: 'Baş',
         repeat: '1 kez',
@@ -87,6 +94,7 @@ export class WuduStrategy extends GuideStrategy {
       {
         step: 8,
         totalSteps: 9,
+        type: 'wash_ears',
         name: 'Kulakların meshi',
         bodyPart: 'Kulaklar',
         repeat: '1 kez',
@@ -98,6 +106,7 @@ export class WuduStrategy extends GuideStrategy {
       {
         step: 9,
         totalSteps: 9,
+        type: 'wash_feet',
         name: 'Ayakların yıkanması',
         bodyPart: 'Ayaklar',
         repeat: '3 kez (her ayak)',
@@ -110,7 +119,7 @@ export class WuduStrategy extends GuideStrategy {
 
     return {
       id: GuideType.WUDU,
-      title: 'Namaz Abdesti',
+      title: 'Abdest',
       totalSteps: steps.length,
       steps,
     } as GuideResponseDto;

@@ -8,4 +8,3 @@ export enum GuideType {
   ISHA = 'isha',
   JUMUAH = 'jumuah',
 }
-

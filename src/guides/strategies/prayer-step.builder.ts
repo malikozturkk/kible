@@ -11,6 +11,7 @@ export class PrayerStepBuilder {
     return {
       step: index,
       totalSteps,
+      type: 'takbir',
       name: 'Tekbir (Allahu Ekber)',
       shortDescription: 'Namaza Allahu Ekber diyerek başlayın',
       description: 'Ayakta Allahu Ekber diyerek namaza başlayın (niyet kalpten yapılır).',
@@ -28,6 +29,7 @@ export class PrayerStepBuilder {
     return {
       step: index,
       totalSteps,
+      type: 'standing',
       name: `Kıyam ve Kıraat (Rekat ${rekat})`,
       shortDescription: 'Fatiha ve kısa sure okuyun',
       description: 'Fatiha okuduktan sonra kısa bir sure (örnek: İhlas) okuyun.',
@@ -42,9 +44,11 @@ export class PrayerStepBuilder {
     return {
       step: index,
       totalSteps,
+      type: 'ruku',
       name: `Rükû (Rekat ${rekat})`,
       shortDescription: 'Eller dizlere gelecek şekilde eğilin',
-      description: 'Sırt düz, eller dizlere gelecek şekilde eğilin ve üç kere Subhana Rabbiyal Azeem deyin.',
+      description:
+        'Sırt düz, eller dizlere gelecek şekilde eğilin ve üç kere Subhana Rabbiyal Azeem deyin.',
       rekat,
       tips: ['Sırtın düz olması önemli', 'Hareket sakin olmalı'],
     } as StepDto;
@@ -54,6 +58,7 @@ export class PrayerStepBuilder {
     return {
       step: index,
       totalSteps,
+      type: 'after_standing',
       name: `Kıyam sonrası (Rekat ${rekat})`,
       shortDescription: 'Rükûdan kalkıp kısa bir duruş',
       description: 'Rükudan kalkıp ayağa kalkın, kısa süre durun.',
@@ -65,6 +70,7 @@ export class PrayerStepBuilder {
     return {
       step: index,
       totalSteps,
+      type: 'prostration',
       name: `Secde (Rekat ${rekat})`,
       shortDescription: 'İki secde yapın',
       description: 'İki secde yapın; her birinde Subhana Rabbiyal A’la deyin.',
@@ -77,6 +83,7 @@ export class PrayerStepBuilder {
     return {
       step: index,
       totalSteps,
+      type: 'salutation',
       name: 'Et-Tahiyyat ve Selam',
       shortDescription: 'Et-Tahiyyat okuyun ve selam verin',
       description: 'Oturduktan sonra Et-Tahiyyat okuyun ve namazı selam ile bitirin.',
@@ -84,4 +91,3 @@ export class PrayerStepBuilder {
     } as StepDto;
   }
 }
-

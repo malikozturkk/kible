@@ -19,6 +19,7 @@ export class JumuahStrategy extends GuideStrategy {
     steps.push({
       step: idx++,
       totalSteps: 6,
+      type: 'khutbah',
       name: 'Hutbe (Khutbah) dinleme',
       shortDescription: 'Cemaatle hutbeyi oturarak dinleyin',
       description: 'Cuma namazından önce hutbeler verilir; dikkatlice dinleyin ve sessiz olun.',

@@ -14,6 +14,7 @@ export class GhuslStrategy extends GuideStrategy {
       {
         step: 1,
         totalSteps: 6,
+        type: 'intend',
         name: 'Niyet etmek',
         bodyPart: 'Kalpten',
         repeat: '1 kez',
@@ -24,6 +25,7 @@ export class GhuslStrategy extends GuideStrategy {
       {
         step: 2,
         totalSteps: 6,
+        type: 'wash_private',
         name: 'Özel yerleri yıkamak',
         bodyPart: 'Cinsel organlar',
         repeat: 'Gerektiği kadar',
@@ -34,6 +36,7 @@ export class GhuslStrategy extends GuideStrategy {
       {
         step: 3,
         totalSteps: 6,
+        type: 'full_ablution',
         name: 'Tam abdest yapmak',
         bodyPart: 'Tüm vücut için hazırlık',
         repeat: 'Sünnet olarak',
@@ -45,6 +48,7 @@ export class GhuslStrategy extends GuideStrategy {
       {
         step: 4,
         totalSteps: 6,
+        type: 'wash_head',
         name: 'Başın üç kere su ile ıslatılması',
         bodyPart: 'Baş',
         repeat: '3 kez',
@@ -56,6 +60,7 @@ export class GhuslStrategy extends GuideStrategy {
       {
         step: 5,
         totalSteps: 6,
+        type: 'wash_body',
         name: 'Tüm bedenin yıkanması',
         bodyPart: 'Tüm vücut',
         repeat: '1 kez',
@@ -70,6 +75,7 @@ export class GhuslStrategy extends GuideStrategy {
       {
         step: 6,
         totalSteps: 6,
+        type: 'control',
         name: 'Sıranın ve eksiksizliğin kontrolü',
         bodyPart: 'Tüm vücut',
         repeat: '1 kez',
