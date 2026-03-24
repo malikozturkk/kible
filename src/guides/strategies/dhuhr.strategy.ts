@@ -31,6 +31,8 @@ export class DhuhrStrategy extends GuideStrategy {
       }
     }
 
+    PrayerStepBuilder.syncTotalSteps(steps);
+
     return {
       id: GuideType.DHUHR,
       title: 'Öğle Namazı',

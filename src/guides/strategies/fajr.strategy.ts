@@ -30,6 +30,8 @@ export class FajrStrategy extends GuideStrategy {
     steps.push(PrayerStepBuilder.buildSujud(idx++, 8, 2));
     steps.push(PrayerStepBuilder.buildTashahhudAndSalam(idx++, 8));
 
+    PrayerStepBuilder.syncTotalSteps(steps);
+
     return {
       id: GuideType.FAJR,
       title: 'Sabah Namazı',

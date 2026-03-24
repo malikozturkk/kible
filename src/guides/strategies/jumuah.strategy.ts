@@ -41,6 +41,8 @@ export class JumuahStrategy extends GuideStrategy {
       }
     }
 
+    PrayerStepBuilder.syncTotalSteps(steps);
+
     return {
       id: GuideType.JUMUAH,
       title: 'Cuma Namazı',

@@ -1,6 +1,13 @@
 import { StepDto } from '../dto/step.dto';
 
 export class PrayerStepBuilder {
+  static syncTotalSteps(steps: StepDto[]): void {
+    const n = steps.length;
+    for (const s of steps) {
+      s.totalSteps = n;
+    }
+  }
+
   static fatiha =
     'Bismillahirrahmanirrahim, Elhamdulillahi rabbil alemin, Errahmanirrahim, Maliki yevmiddin, Iyya ke na’budu ve iyya ke nesta’in, Ihdinas siratal mustakim, Siratallezine en’amte aleyhim, ğayril mağdubi aleyhim ve leddallin';
 

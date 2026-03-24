@@ -31,6 +31,8 @@ export class AsrStrategy extends GuideStrategy {
       }
     }
 
+    PrayerStepBuilder.syncTotalSteps(steps);
+
     return {
       id: GuideType.ASR,
       title: 'İkindi Namazı',

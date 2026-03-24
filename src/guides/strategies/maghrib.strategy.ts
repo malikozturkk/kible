@@ -31,6 +31,8 @@ export class MaghribStrategy extends GuideStrategy {
       }
     }
 
+    PrayerStepBuilder.syncTotalSteps(steps);
+
     return {
       id: GuideType.MAGHRIB,
       title: 'Akşam Namazı',

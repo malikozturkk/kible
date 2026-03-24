@@ -31,6 +31,8 @@ export class IshaStrategy extends GuideStrategy {
       }
     }
 
+    PrayerStepBuilder.syncTotalSteps(steps);
+
     return {
       id: GuideType.ISHA,
       title: 'Yatsı Namazı',
