@@ -3,9 +3,11 @@ import { JwtService } from '@nestjs/jwt';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { StringValue } from 'ms';
 import * as crypto from 'crypto';
+import { Gender } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuthResponseDto } from '../auth/dto/auth-response.dto';
 import { EmailService } from '../email/email.service';
+import { resolveAvatarCustomizationFromDb } from '../auth/utils/avatar-config.util';
 
 export interface RegisterData {
   email: string;
@@ -168,12 +170,20 @@ export class OtpService {
                 streakFreezeCount: 0,
               },
             },
+            avatarConfig: {
+              create: {
+                gender: Gender.MALE,
+              },
+            },
           },
           select: {
             id: true,
             username: true,
             email: true,
             avatar: true,
+            avatarConfig: {
+              select: { colors: true, accessories: true, gender: true },
+            },
           },
         });
 
@@ -193,9 +203,14 @@ export class OtpService {
 
     const tokens = await this.generateTokens(user.id, user.username);
 
+    const { avatarConfig, ...userRest } = user;
+
     return {
       ...tokens,
-      user,
+      user: {
+        ...userRest,
+        avatarCustomization: resolveAvatarCustomizationFromDb(avatarConfig),
+      },
     };
   }
 

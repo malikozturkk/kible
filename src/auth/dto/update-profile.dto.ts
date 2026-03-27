@@ -1,4 +1,7 @@
-import { IsString, IsOptional, Matches, MinLength } from 'class-validator';
+import { Type } from 'class-transformer';
+import { IsString, IsOptional, Matches, MinLength, ValidateNested, IsIn } from 'class-validator';
+import { AvatarColorsDto } from './avatar-colors.dto';
+import { GENDER_VALUES, type GenderValue } from '../constants/gender.constants';
 
 export class UpdateProfileDto {
   @IsString()
@@ -11,6 +14,15 @@ export class UpdateProfileDto {
   @IsString()
   @IsOptional()
   avatar?: string;
+
+  @IsOptional()
+  @IsIn(GENDER_VALUES, { message: 'INVALID_GENDER' })
+  gender?: GenderValue;
+
+  @ValidateNested()
+  @Type(() => AvatarColorsDto)
+  @IsOptional()
+  avatarColors?: AvatarColorsDto;
 
   @IsString()
   @IsOptional()

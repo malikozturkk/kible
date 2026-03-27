@@ -14,6 +14,12 @@ import { LoginDto } from './dto/login.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { AuthResponseDto } from './dto/auth-response.dto';
+import { AVATAR_COLOR_KEYS, type AvatarColorKey } from './constants/avatar.constants';
+import { AvatarColorsDto } from './dto/avatar-colors.dto';
+import {
+  resolveAvatarColors,
+  resolveAvatarCustomizationFromDb,
+} from './utils/avatar-config.util';
 import { RegisterResponseDto } from './dto/register-response.dto';
 import { JwtPayload } from './strategies/jwt.strategy';
 import { OtpService } from '../otp/otp.service';
@@ -100,6 +106,9 @@ export class AuthService {
       where,
       include: {
         credentials: true,
+        avatarConfig: {
+          select: { colors: true, accessories: true, gender: true },
+        },
       },
     });
 
@@ -115,13 +124,15 @@ export class AuthService {
     }
 
     const tokens = await this.generateTokens(user.id, user.username);
+    const { avatarConfig, ...userRest } = user;
     return {
       ...tokens,
       user: {
-        id: user.id,
-        username: user.username,
-        email: user.email,
-        avatar: user.avatar,
+        id: userRest.id,
+        username: userRest.username,
+        email: userRest.email,
+        avatar: userRest.avatar,
+        avatarCustomization: resolveAvatarCustomizationFromDb(avatarConfig),
       },
     };
   }
@@ -138,6 +149,9 @@ export class AuthService {
             username: true,
             email: true,
             avatar: true,
+            avatarConfig: {
+              select: { colors: true, accessories: true, gender: true },
+            },
           },
         },
       },
@@ -148,9 +162,13 @@ export class AuthService {
     }
 
     const tokens = await this.generateTokens(storedToken.user.id, storedToken.user.username);
+    const { avatarConfig, ...userRest } = storedToken.user;
     return {
       ...tokens,
-      user: storedToken.user,
+      user: {
+        ...userRest,
+        avatarCustomization: resolveAvatarCustomizationFromDb(avatarConfig),
+      },
     };
   }
 
@@ -215,7 +233,10 @@ export class AuthService {
       await Promise.all([
         this.prisma.user.findUnique({
           where: { id: target.id },
-          select: this.getProfileSelect(isOwner),
+          select: {
+            ...this.getProfileSelect(isOwner),
+            avatarConfig: { select: { colors: true, accessories: true, gender: true } },
+          },
         }),
         this.getMutualFollowers(isOwner, target.id, viewerId),
         this.getIsFollowing(isOwner, target.id, viewerId),
@@ -223,14 +244,25 @@ export class AuthService {
         this.prisma.follow.count({ where: { followerId: target.id } }),
       ]);
 
+    if (!profile) {
+      throw new NotFoundException('USER_NOT_FOUND');
+    }
+
+    const { avatarConfig, ...rest } = profile;
+
     return {
-      ...profile,
+      ...rest,
+      avatarCustomization: resolveAvatarCustomizationFromDb(avatarConfig),
       isFollowing: isOwner ? null : !!isFollowing,
       followerCount,
       followingCount,
       mutualFollowers: {
         count: mutualFollowers.length,
-        preview: mutualFollowers.map((f) => f.follower),
+        preview: mutualFollowers.map((f) => ({
+          username: f.follower.username,
+          avatar: f.follower.avatar,
+          avatarCustomization: resolveAvatarCustomizationFromDb(f.follower.avatarConfig),
+        })),
       },
     };
   }
@@ -243,7 +275,17 @@ export class AuthService {
         followingId: targetId,
         follower: { followers: { some: { followerId: viewerId } } },
       },
-      select: { follower: { select: { username: true, avatar: true } } },
+      select: {
+        follower: {
+          select: {
+            username: true,
+            avatar: true,
+            avatarConfig: {
+              select: { colors: true, accessories: true, gender: true },
+            },
+          },
+        },
+      },
       take: 3,
     });
   }
@@ -257,11 +299,25 @@ export class AuthService {
     });
   }
 
+  private mergeAvatarColorPatch(
+    current: Record<AvatarColorKey, string>,
+    patch: AvatarColorsDto,
+  ): Record<AvatarColorKey, string> {
+    const next = { ...current };
+    for (const key of AVATAR_COLOR_KEYS) {
+      const v = patch[key];
+      if (v !== undefined) {
+        next[key] = v;
+      }
+    }
+    return next;
+  }
+
   async updateProfile(
     userId: string,
     updateProfileDto: UpdateProfileDto,
   ): Promise<AuthResponseDto['user']> {
-    const { username, avatar, currentPassword, newPassword } = updateProfileDto;
+    const { username, avatar, gender, avatarColors, currentPassword, newPassword } = updateProfileDto;
     if (username) {
       const existingUser = await this.prisma.user.findFirst({
         where: {
@@ -318,7 +374,40 @@ export class AuthService {
       },
     });
 
-    return user;
+    if (avatarColors !== undefined || gender !== undefined) {
+      const existing = await this.prisma.userAvatarConfig.findUnique({
+        where: { userId },
+      });
+      const mergedColors =
+        avatarColors !== undefined
+          ? this.mergeAvatarColorPatch(resolveAvatarColors(existing?.colors), avatarColors)
+          : resolveAvatarColors(existing?.colors);
+      const mergedGender =
+        gender !== undefined ? gender : (existing?.gender ?? 'MALE');
+
+      await this.prisma.userAvatarConfig.upsert({
+        where: { userId },
+        create: {
+          userId,
+          colors: mergedColors,
+          accessories: {},
+          gender: mergedGender,
+        },
+        update: {
+          colors: mergedColors,
+          ...(gender !== undefined && { gender: mergedGender }),
+        },
+      });
+    }
+
+    const avatarRow = await this.prisma.userAvatarConfig.findUnique({
+      where: { userId },
+    });
+
+    return {
+      ...user,
+      avatarCustomization: resolveAvatarCustomizationFromDb(avatarRow),
+    };
   }
 
   private resolveIdentifierWhereClause(
@@ -382,13 +471,20 @@ export class AuthService {
           select: {
             username: true,
             avatar: true,
+            avatarConfig: {
+              select: { colors: true, accessories: true, gender: true },
+            },
           },
         },
       },
       orderBy: { createdAt: 'desc' },
     });
 
-    return follows.map((f) => f.follower);
+    return follows.map((f) => ({
+      username: f.follower.username,
+      avatar: f.follower.avatar,
+      avatarCustomization: resolveAvatarCustomizationFromDb(f.follower.avatarConfig),
+    }));
   }
 
   async getFollowing(username: string) {
@@ -408,13 +504,20 @@ export class AuthService {
           select: {
             username: true,
             avatar: true,
+            avatarConfig: {
+              select: { colors: true, accessories: true, gender: true },
+            },
           },
         },
       },
       orderBy: { createdAt: 'desc' },
     });
 
-    return follows.map((f) => f.following);
+    return follows.map((f) => ({
+      username: f.following.username,
+      avatar: f.following.avatar,
+      avatarCustomization: resolveAvatarCustomizationFromDb(f.following.avatarConfig),
+    }));
   }
 
   async toggleFollow(currentUserId: string, targetUsername: string) {

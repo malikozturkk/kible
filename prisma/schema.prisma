@@ -6,6 +6,11 @@ datasource db {
   provider = "postgresql"
 }
 
+enum Gender {
+  MALE
+  FEMALE
+}
+
 model User {
   id            String          @id @default(uuid())
   email         String          @unique
@@ -25,6 +30,9 @@ model User {
   // follow relations
   following     Follow[]        @relation("UserFollowing")
   followers     Follow[]        @relation("UserFollowers")
+
+  // avatar customization
+  avatarConfig    UserAvatarConfig?
 
   @@map("users")
 }
@@ -105,6 +113,22 @@ model PasswordReset {
 
   @@index([userId])
   @@map("password_resets")
+}
+
+//////////////////////////////////////////////////////
+
+model UserAvatarConfig {
+  id           String   @id @default(uuid())
+  userId       String   @unique
+  gender       Gender   @default(MALE)
+  colors       Json     @default("{}")
+  accessories  Json     @default("{}")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_avatar_configs")
 }
 
 //////////////////////////////////////////////////////
