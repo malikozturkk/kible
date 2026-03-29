@@ -7,6 +7,7 @@ import { AuthModule } from './auth/auth.module';
 import { GamificationModule } from './gamification/gamification.module';
 import { GuidesModule } from './guides/guides.module';
 import { WorshipModule } from './worship/worship.module';
+import { UsersModule } from './users/users.module';
 
 @Module({
   imports: [
@@ -15,6 +16,7 @@ import { WorshipModule } from './worship/worship.module';
     GamificationModule,
     GuidesModule,
     WorshipModule,
+    UsersModule,
     ScheduleModule.forRoot(),
   ],
   controllers: [AppController],
