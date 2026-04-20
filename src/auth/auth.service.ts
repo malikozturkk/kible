@@ -11,6 +11,7 @@ import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../prisma/prisma.service';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
+import { CONSENT_VERSIONS } from '../common/constants/consent.constants';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { AuthResponseDto } from './dto/auth-response.dto';
@@ -87,7 +88,13 @@ export class AuthService {
       { expiresIn: '10m' },
     );
 
-    await this.otpService.create(tempToken, { email, username, passwordHash });
+    await this.otpService.create(tempToken, {
+      email,
+      username,
+      passwordHash,
+      termsVersion: CONSENT_VERSIONS.TERMS_OF_SERVICE,
+      privacyPolicyVersion: CONSENT_VERSIONS.PRIVACY_POLICY,
+    });
 
     return {
       tempToken,

@@ -1,4 +1,4 @@
-import { IsString, IsNotEmpty, IsEmail, MinLength, Matches } from 'class-validator';
+import { IsString, IsNotEmpty, IsEmail, MinLength, Matches, IsBoolean, Equals } from 'class-validator';
 
 export class RegisterDto {
   @IsString()
@@ -18,4 +18,12 @@ export class RegisterDto {
     message: 'PASSWORD_TOO_SHORT',
   })
   password: string;
+
+  @IsBoolean({ message: 'TERMS_ACCEPTED_MUST_BE_BOOLEAN' })
+  @Equals(true, { message: 'TERMS_NOT_ACCEPTED' })
+  termsAccepted: boolean;
+
+  @IsBoolean({ message: 'PRIVACY_POLICY_ACCEPTED_MUST_BE_BOOLEAN' })
+  @Equals(true, { message: 'PRIVACY_POLICY_NOT_ACCEPTED' })
+  privacyPolicyAccepted: boolean;
 }

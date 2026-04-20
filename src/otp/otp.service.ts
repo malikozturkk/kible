@@ -3,7 +3,7 @@ import { JwtService } from '@nestjs/jwt';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { StringValue } from 'ms';
 import * as crypto from 'crypto';
-import { Gender } from '@prisma/client';
+import { ConsentType, Gender } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuthResponseDto } from '../auth/dto/auth-response.dto';
 import { EmailService } from '../email/email.service';
@@ -13,6 +13,8 @@ export interface RegisterData {
   email: string;
   username: string;
   passwordHash: string;
+  termsVersion: string;
+  privacyPolicyVersion: string;
 }
 
 @Injectable()
@@ -42,6 +44,8 @@ export class OtpService {
         email: registrationData.email,
         username: registrationData.username,
         passwordHash: registrationData.passwordHash,
+        termsVersion: registrationData.termsVersion,
+        privacyPolicyVersion: registrationData.privacyPolicyVersion,
         expiresAt,
       },
     });
@@ -185,6 +189,21 @@ export class OtpService {
               select: { colors: true, accessories: true, gender: true },
             },
           },
+        });
+
+        await tx.userConsent.createMany({
+          data: [
+            {
+              userId: createdUser.id,
+              type: ConsentType.TERMS_OF_SERVICE,
+              version: record.termsVersion,
+            },
+            {
+              userId: createdUser.id,
+              type: ConsentType.PRIVACY_POLICY,
+              version: record.privacyPolicyVersion,
+            },
+          ],
         });
 
         await tx.otpVerification.delete({
