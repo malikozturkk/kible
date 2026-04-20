@@ -123,6 +123,7 @@ model UserConsent {
 
   @@unique([userId, type, version])
   @@index([userId])
+  @@index([userId, type, acceptedAt])
   @@map("user_consents")
 }
 

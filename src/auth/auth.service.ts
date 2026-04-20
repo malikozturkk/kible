@@ -6,21 +6,20 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
+import { ConfigService } from '@nestjs/config';
 import { StringValue } from 'ms';
 import * as bcrypt from 'bcrypt';
+import { ConsentType } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
-import { CONSENT_VERSIONS } from '../common/constants/consent.constants';
+import type { ConsentVersionsMap } from '../consent/consent.constants';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { AuthResponseDto } from './dto/auth-response.dto';
 import { AVATAR_COLOR_KEYS, type AvatarColorKey } from './constants/avatar.constants';
 import { AvatarColorsDto } from './dto/avatar-colors.dto';
-import {
-  resolveAvatarColors,
-  resolveAvatarCustomizationFromDb,
-} from './utils/avatar-config.util';
+import { resolveAvatarColors, resolveAvatarCustomizationFromDb } from './utils/avatar-config.util';
 import { RegisterResponseDto } from './dto/register-response.dto';
 import { JwtPayload } from './strategies/jwt.strategy';
 import { OtpService } from '../otp/otp.service';
@@ -36,7 +35,16 @@ export class AuthService {
     private prisma: PrismaService,
     private jwtService: JwtService,
     private otpService: OtpService,
+    private configService: ConfigService,
   ) {}
+
+  private getConsentVersions(): ConsentVersionsMap {
+    const versions = this.configService.get<ConsentVersionsMap>('CONSENT_VERSIONS');
+    if (!versions) {
+      throw new Error('CONSENT_VERSIONS_NOT_CONFIGURED');
+    }
+    return versions;
+  }
 
   async register(registerDto: RegisterDto): Promise<RegisterResponseDto> {
     const { username, email, password } = registerDto;
@@ -88,12 +96,13 @@ export class AuthService {
       { expiresIn: '10m' },
     );
 
+    const versions = this.getConsentVersions();
     await this.otpService.create(tempToken, {
       email,
       username,
       passwordHash,
-      termsVersion: CONSENT_VERSIONS.TERMS_OF_SERVICE,
-      privacyPolicyVersion: CONSENT_VERSIONS.PRIVACY_POLICY,
+      termsVersion: versions[ConsentType.TERMS_OF_SERVICE],
+      privacyPolicyVersion: versions[ConsentType.PRIVACY_POLICY],
     });
 
     return {
@@ -324,7 +333,8 @@ export class AuthService {
     userId: string,
     updateProfileDto: UpdateProfileDto,
   ): Promise<AuthResponseDto['user']> {
-    const { username, avatar, gender, avatarColors, currentPassword, newPassword } = updateProfileDto;
+    const { username, avatar, gender, avatarColors, currentPassword, newPassword } =
+      updateProfileDto;
     if (username) {
       const existingUser = await this.prisma.user.findFirst({
         where: {
@@ -389,8 +399,7 @@ export class AuthService {
         avatarColors !== undefined
           ? this.mergeAvatarColorPatch(resolveAvatarColors(existing?.colors), avatarColors)
           : resolveAvatarColors(existing?.colors);
-      const mergedGender =
-        gender !== undefined ? gender : (existing?.gender ?? 'MALE');
+      const mergedGender = gender !== undefined ? gender : (existing?.gender ?? 'MALE');
 
       await this.prisma.userAvatarConfig.upsert({
         where: { userId },
