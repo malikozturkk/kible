@@ -1,7 +1,3 @@
-/**
- * v1 editable avatar color regions (SVG layer keys).
- * Extend this list when new color slots are added; keep DB JSON merge-compatible.
- */
 export const AVATAR_COLOR_KEYS = [
   'iris',
   'pupil',

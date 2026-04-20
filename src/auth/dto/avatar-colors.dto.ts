@@ -1,10 +1,6 @@
 import { IsOptional, Matches } from 'class-validator';
 
 const HEX_COLOR_6 = /^#[0-9A-Fa-f]{6}$/;
-
-/**
- * Partial color overrides for PATCH profile. Omitted keys are left unchanged.
- */
 export class AvatarColorsDto {
   @IsOptional()
   @Matches(HEX_COLOR_6, { message: 'INVALID_HEX_COLOR' })
