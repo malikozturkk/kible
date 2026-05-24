@@ -1,4 +1,4 @@
-import { IsNumber, IsString } from 'class-validator';
+import { IsNumber, IsOptional, IsString, MaxLength } from 'class-validator';
 import { Type } from 'class-transformer';
 
 export class AdhanQueryDto {
@@ -15,4 +15,14 @@ export class AdhanQueryDto {
 
   @IsString()
   tz: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  method?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(32)
+  madhab?: string;
 }

@@ -18,21 +18,26 @@ export class WorshipService {
   ) {}
 
   async adhan(params: AdhanParams): Promise<WorshipResponseDTO> {
-    const { latitude, longitude, date, timezone } = params;
+    const { latitude, longitude, date, timezone, method, madhab } = params;
 
     const zonedDate = DateTime.fromISO(date, { zone: timezone });
     const now = DateTime.now().setZone(timezone);
 
-    const todayPrayerTimes = this.prayerTimeFactory.buildPrayerTimes(
+    const today = this.prayerTimeFactory.buildPrayerTimesWithMeta(
       latitude,
       longitude,
       zonedDate.toJSDate(),
+      { method, madhab },
     );
-    const tomorrowPrayerTimes = this.prayerTimeFactory.buildPrayerTimes(
+    const tomorrow = this.prayerTimeFactory.buildPrayerTimesWithMeta(
       latitude,
       longitude,
       zonedDate.plus({ days: 1 }).toJSDate(),
+      { method, madhab },
     );
+
+    const todayPrayerTimes = today.prayerTimes;
+    const tomorrowPrayerTimes = tomorrow.prayerTimes;
 
     const entries = this.prayerTimeFactory.toPrayerEntries(todayPrayerTimes, timezone);
     const tomorrowFajr = DateTime.fromJSDate(tomorrowPrayerTimes.fajr, { zone: timezone });
@@ -75,8 +80,8 @@ export class WorshipService {
         gregorianDate: zonedDate.toISODate(),
         hijriDate,
         hijriMonthName,
-        calculationMethod: 'Turkey',
-        madhab: 'Shafi',
+        calculationMethod: today.method,
+        madhab: today.madhab,
       },
       times,
       nextPrayer: nextPrayer.name,
@@ -86,5 +91,9 @@ export class WorshipService {
       dayProgressPercent,
       fasting,
     };
+  }
+
+  getOptions() {
+    return this.prayerTimeFactory.listOptions();
   }
 }
