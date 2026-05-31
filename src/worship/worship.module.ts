@@ -17,6 +17,6 @@ import { WorshipResponseMapper } from './mappers/worship-response.mapper';
     DayProgressService,
     WorshipResponseMapper,
   ],
-  exports: [WorshipService],
+  exports: [WorshipService, PrayerTimeFactory],
 })
 export class WorshipModule {}

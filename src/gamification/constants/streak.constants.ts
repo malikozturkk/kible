@@ -1,0 +1,1 @@
+export const STREAK_FREEZE_MAX_GAP_DAYS = 3;

@@ -16,6 +16,36 @@ enum ConsentType {
   PRIVACY_POLICY
 }
 
+enum PrayerType {
+  FAJR
+  DHUHR
+  ASR
+  MAGHRIB
+  ISHA
+  JUMUAH
+  TARAWIH
+  EID_FITR
+  EID_ADHA
+}
+
+enum PrayerCategory {
+  DAILY
+  WEEKLY
+  RAMADAN
+  EID
+}
+
+enum PrayerQuizStatus {
+  PENDING
+  PASSED
+  FAILED
+  EXPIRED
+}
+
+enum StreakFreezeReason {
+  USER_INITIATED
+}
+
 model User {
   id            String          @id @default(uuid())
   email         String          @unique
@@ -41,6 +71,12 @@ model User {
 
   // consent records
   consents        UserConsent[]
+
+  // prayer relations
+  prayerCompletions   PrayerCompletion[]
+  prayerQuizzes       PrayerQuizSubmission[]
+  prayerStats         UserPrayerStats?
+  streakFreezeUsages  StreakFreezeUsage[]
 
   @@map("users")
 }
@@ -205,4 +241,119 @@ model Question {
 
   @@index([guideId])
   @@map("questions")
+}
+
+//////////////////////////////////////////////////////
+
+model PrayerQuestion {
+  id           String       @id @default(uuid())
+  prompt       String
+  explanation  String?
+  prayerType   PrayerType?
+  difficulty   Int          @default(1)
+  isActive     Boolean      @default(true)
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+  options      PrayerQuestionOption[]
+
+  @@index([prayerType, isActive])
+  @@index([isActive])
+  @@map("prayer_questions")
+}
+
+//////////////////////////////////////////////////////
+
+model PrayerQuestionOption {
+  id          String   @id @default(uuid())
+  questionId  String
+  text        String
+  isCorrect   Boolean  @default(false)
+  orderIndex  Int      @default(0)
+  createdAt   DateTime @default(now())
+  question    PrayerQuestion @relation(fields: [questionId], references: [id], onDelete: Cascade)
+
+  @@index([questionId])
+  @@map("prayer_question_options")
+}
+
+//////////////////////////////////////////////////////
+
+model PrayerQuizSubmission {
+  id                  String           @id @default(uuid())
+  userId              String
+  prayerType          PrayerType
+  prayerDate          DateTime         @db.Date
+  timezone            String
+  questionIds         String[]
+  windowStartsAt      DateTime
+  windowEndsAt        DateTime
+  expiresAt           DateTime
+  status              PrayerQuizStatus @default(PENDING)
+  attemptCount        Int              @default(0)
+  submittedAt         DateTime?
+  prayerCompletionId  String?          @unique
+  createdAt           DateTime         @default(now())
+  updatedAt           DateTime         @updatedAt
+  user                User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  prayerCompletion    PrayerCompletion?   @relation(fields: [prayerCompletionId], references: [id], onDelete: SetNull)
+
+  @@index([userId, prayerDate])
+  @@index([userId, status])
+  @@index([userId, prayerType, prayerDate])
+  @@map("prayer_quiz_submissions")
+}
+
+model PrayerCompletion {
+  id                  String          @id @default(uuid())
+  userId              String
+  prayerType          PrayerType
+  prayerDate          DateTime        @db.Date
+  completedAt         DateTime        @default(now())
+  timezone            String
+  xpAwarded           Int
+  isFirstOfDay        Boolean         @default(false)
+  streakContributed   Boolean         @default(false)
+  streakFreezeApplied Boolean         @default(false)
+  createdAt           DateTime        @default(now())
+  user                User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  quizSubmission      PrayerQuizSubmission?
+
+  @@unique([userId, prayerType, prayerDate])
+  @@index([userId, prayerDate])
+  @@index([userId, completedAt])
+  @@map("prayer_completions")
+}
+
+model UserPrayerStats {
+  id              String   @id @default(uuid())
+  userId          String   @unique
+  totalCompleted  Int      @default(0)
+  totalFajr       Int      @default(0)
+  totalDhuhr      Int      @default(0)
+  totalAsr        Int      @default(0)
+  totalMaghrib    Int      @default(0)
+  totalIsha       Int      @default(0)
+  totalJumuah     Int      @default(0)
+  totalTarawih    Int      @default(0)
+  totalEidFitr    Int      @default(0)
+  totalEidAdha    Int      @default(0)
+  lastCompletedAt DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_prayer_stats")
+}
+
+model StreakFreezeUsage {
+  id            String             @id @default(uuid())
+  userId        String
+  protectedDate DateTime           @db.Date
+  usedAt        DateTime           @default(now())
+  reason        StreakFreezeReason @default(USER_INITIATED)
+  user          User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, protectedDate])
+  @@index([userId, usedAt])
+  @@map("streak_freeze_usages")
 }

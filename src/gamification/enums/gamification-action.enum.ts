@@ -1,0 +1,4 @@
+export enum GamificationActionType {
+  PRAYER_COMPLETION = 'PRAYER_COMPLETION',
+  STREAK_FREEZE = 'STREAK_FREEZE',
+}
