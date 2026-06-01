@@ -15,8 +15,6 @@ import { PrayerType } from '@prisma/client';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import type { AuthenticatedRequest } from '../auth/strategies/jwt.strategy';
 import { GamificationService } from './gamification.service';
-import { UserXpResponseDto } from './dto/user-xp.dto';
-import { UserStreakResponseDto } from './dto/user-streak.dto';
 import { DailyPrayersQueryDto, DailyPrayersResponseDto } from './dto/daily-prayers.dto';
 import { PrayerQuestionsQueryDto, PrayerQuestionsResponseDto } from './dto/prayer-questions.dto';
 import {
@@ -28,16 +26,6 @@ import {
 @UseGuards(JwtAuthGuard)
 export class GamificationController {
   constructor(private readonly gamificationService: GamificationService) {}
-
-  @Get('user-xp')
-  async userXp(@Request() req: AuthenticatedRequest): Promise<UserXpResponseDto> {
-    return this.gamificationService.userXp(req.user.id);
-  }
-
-  @Get('user-streak')
-  async userStreak(@Request() req: AuthenticatedRequest): Promise<UserStreakResponseDto> {
-    return this.gamificationService.userStreak(req.user.id);
-  }
 
   @Get('daily-prayers')
   async dailyPrayers(
