@@ -3,7 +3,7 @@ import { JwtService } from '@nestjs/jwt';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { StringValue } from 'ms';
 import * as crypto from 'crypto';
-import { ConsentType, Gender } from '@prisma/client';
+import { ConsentType, Gender, Madhab } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuthResponseDto } from '../auth/dto/auth-response.dto';
 import { EmailService } from '../email/email.service';
@@ -13,6 +13,13 @@ export interface RegisterData {
   email: string;
   username: string;
   passwordHash: string;
+  gender: Gender;
+  country: string;
+  city: string;
+  latitude: number;
+  longitude: number;
+  madhab: Madhab;
+  language: string;
   termsVersion: string;
   privacyPolicyVersion: string;
 }
@@ -44,6 +51,13 @@ export class OtpService {
         email: registrationData.email,
         username: registrationData.username,
         passwordHash: registrationData.passwordHash,
+        gender: registrationData.gender,
+        country: registrationData.country,
+        city: registrationData.city,
+        latitude: registrationData.latitude,
+        longitude: registrationData.longitude,
+        madhab: registrationData.madhab,
+        language: registrationData.language,
         termsVersion: registrationData.termsVersion,
         privacyPolicyVersion: registrationData.privacyPolicyVersion,
         expiresAt,
@@ -156,6 +170,12 @@ export class OtpService {
           data: {
             email: record.email,
             username: record.username,
+            country: record.country,
+            city: record.city,
+            latitude: record.latitude,
+            longitude: record.longitude,
+            madhab: record.madhab,
+            language: record.language,
             credentials: {
               create: {
                 passwordHash: record.passwordHash,
@@ -176,7 +196,7 @@ export class OtpService {
             },
             avatarConfig: {
               create: {
-                gender: Gender.MALE,
+                gender: record.gender,
               },
             },
           },

@@ -5,7 +5,6 @@ import {
   IsBoolean,
   IsEnum,
   IsInt,
-  IsNumber,
   IsOptional,
   IsString,
   IsUUID,
@@ -29,27 +28,9 @@ export class GamificationActionRequestDto {
   @IsEnum(GamificationActionType)
   actionType: GamificationActionType;
 
-  @Type(() => Number)
-  @IsNumber({ maxDecimalPlaces: 8 })
-  lat: number;
-
-  @Type(() => Number)
-  @IsNumber({ maxDecimalPlaces: 8 })
-  lng: number;
-
   @IsString()
   @MaxLength(64)
   tz: string;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(64)
-  method?: string;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(32)
-  madhab?: string;
 
   @IsOptional()
   @IsUUID()

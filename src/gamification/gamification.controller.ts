@@ -34,12 +34,8 @@ export class GamificationController {
   ): Promise<DailyPrayersResponseDto> {
     return this.gamificationService.dailyPrayers({
       userId: req.user.id,
-      latitude: Number(query.lat),
-      longitude: Number(query.lng),
       date: query.date,
       timezone: query.tz,
-      method: query.method,
-      madhab: query.madhab,
     });
   }
 
@@ -52,12 +48,8 @@ export class GamificationController {
     return this.gamificationService.prayerQuestions(
       {
         userId: req.user.id,
-        latitude: Number(query.lat),
-        longitude: Number(query.lng),
         date: new Date().toISOString().slice(0, 10),
         timezone: query.tz,
-        method: query.method,
-        madhab: query.madhab,
       },
       prayerId,
     );

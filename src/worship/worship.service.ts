@@ -1,5 +1,6 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, BadRequestException } from '@nestjs/common';
 import { DateTime } from 'luxon';
+import { PrismaService } from '../prisma/prisma.service';
 import { AdhanParams, WorshipResponseDTO } from './types/prayer.types';
 import { PrayerTimeFactory } from './factories/prayer-time.factory';
 import { PrayerCountdownService } from './services/prayer-countdown.service';
@@ -10,6 +11,7 @@ import { WorshipResponseMapper } from './mappers/worship-response.mapper';
 @Injectable()
 export class WorshipService {
   constructor(
+    private readonly prisma: PrismaService,
     private readonly prayerTimeFactory: PrayerTimeFactory,
     private readonly countdownService: PrayerCountdownService,
     private readonly fastingProgressService: FastingProgressService,
@@ -18,7 +20,24 @@ export class WorshipService {
   ) {}
 
   async adhan(params: AdhanParams): Promise<WorshipResponseDTO> {
-    const { latitude, longitude, date, timezone, method, madhab } = params;
+    const { userId, date, timezone } = params;
+
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { latitude: true, longitude: true, madhab: true },
+    });
+
+    if (!user) {
+      throw new BadRequestException('USER_NOT_FOUND');
+    }
+
+    if (user.latitude === null || user.longitude === null) {
+      throw new BadRequestException('USER_LOCATION_NOT_SET');
+    }
+
+    const latitude = user.latitude;
+    const longitude = user.longitude;
+    const madhab = user.madhab;
 
     const zonedDate = DateTime.fromISO(date, { zone: timezone });
     const now = DateTime.now().setZone(timezone);
@@ -27,13 +46,13 @@ export class WorshipService {
       latitude,
       longitude,
       zonedDate.toJSDate(),
-      { method, madhab },
+      { madhab },
     );
     const tomorrow = this.prayerTimeFactory.buildPrayerTimesWithMeta(
       latitude,
       longitude,
       zonedDate.plus({ days: 1 }).toJSDate(),
-      { method, madhab },
+      { madhab },
     );
 
     const todayPrayerTimes = today.prayerTimes;

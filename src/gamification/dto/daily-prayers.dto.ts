@@ -4,7 +4,6 @@ import {
   IsBoolean,
   IsEnum,
   IsInt,
-  IsNumber,
   IsOptional,
   IsString,
   Matches,
@@ -14,14 +13,6 @@ import {
 import { PrayerCategory, PrayerType } from '@prisma/client';
 
 export class DailyPrayersQueryDto {
-  @Type(() => Number)
-  @IsNumber({ maxDecimalPlaces: 8 })
-  lat: number;
-
-  @Type(() => Number)
-  @IsNumber({ maxDecimalPlaces: 8 })
-  lng: number;
-
   @IsString()
   @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'date must be YYYY-MM-DD' })
   date: string;
@@ -29,16 +20,6 @@ export class DailyPrayersQueryDto {
   @IsString()
   @MaxLength(64)
   tz: string;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(64)
-  method?: string;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(32)
-  madhab?: string;
 }
 
 export class PrayerCardDto {

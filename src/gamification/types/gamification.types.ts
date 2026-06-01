@@ -1,5 +1,5 @@
 import { DateTime } from 'luxon';
-import { PrayerType, PrayerCategory } from '@prisma/client';
+import { PrayerType, PrayerCategory, Madhab } from '@prisma/client';
 
 export interface PrayerSlot {
   type: PrayerType;
@@ -11,12 +11,23 @@ export interface PrayerSlot {
   isObligatory: boolean;
 }
 
+export interface UserPrayerConfig {
+  latitude: number;
+  longitude: number;
+  madhab: Madhab;
+}
+
+export interface PrayerViewRequest {
+  userId: string;
+  date: string;
+  timezone: string;
+}
+
 export interface PrayerScheduleParams {
   userId: string;
   latitude: number;
   longitude: number;
   date: string;
   timezone: string;
-  method?: string;
-  madhab?: string;
+  madhab: Madhab;
 }

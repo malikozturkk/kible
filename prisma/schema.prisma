@@ -11,6 +11,11 @@ enum Gender {
   FEMALE
 }
 
+enum Madhab {
+  SHAFI
+  HANAFI
+}
+
 enum ConsentType {
   TERMS_OF_SERVICE
   PRIVACY_POLICY
@@ -53,6 +58,13 @@ model User {
   avatar        String?
   createdAt     DateTime        @default(now())
   updatedAt     DateTime        @updatedAt
+
+  country       String?
+  city          String?
+  latitude      Float?
+  longitude     Float?
+  madhab        Madhab          @default(SHAFI)
+  language      String          @default("tr")
 
   // auth relations
   credentials   UserCredential?
@@ -140,6 +152,13 @@ model OtpVerification {
   passwordHash         String
   termsVersion         String
   privacyPolicyVersion String
+  gender               Gender   @default(MALE)
+  country              String?
+  city                 String?
+  latitude             Float?
+  longitude            Float?
+  madhab               Madhab   @default(SHAFI)
+  language             String   @default("tr")
   expiresAt            DateTime
   createdAt            DateTime @default(now())
 

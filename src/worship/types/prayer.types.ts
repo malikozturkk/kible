@@ -57,12 +57,9 @@ export interface WorshipResponseDTO {
 }
 
 export interface AdhanParams {
-  latitude: number;
-  longitude: number;
+  userId: string;
   date: string;
   timezone: string;
-  method?: string;
-  madhab?: string;
 }
 
 export interface NextPrayerResult {

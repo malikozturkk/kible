@@ -5,7 +5,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { PrayerTimeFactory } from '../../worship/factories/prayer-time.factory';
 import { BusinessException } from '../../common/exceptions/business.exception';
 import { LocalDate } from '../../common/utils/local-date';
-import { PrayerSlot, PrayerScheduleParams } from '../types/gamification.types';
+import { PrayerSlot, PrayerScheduleParams, UserPrayerConfig } from '../types/gamification.types';
 import { buildPrayerSlots, isWithinWindow } from '../helpers/prayer-schedule.helper';
 import { toHijri, isRamadan, isEidFitr, isEidAdha, isFriday } from '../helpers/hijri.helper';
 import { DailyPrayersResponseDto, PrayerCardDto } from '../dto/daily-prayers.dto';
@@ -17,6 +17,27 @@ export class PrayerScheduleService {
     private readonly prayerTimeFactory: PrayerTimeFactory,
   ) {}
 
+  async getUserPrayerConfig(userId: string): Promise<UserPrayerConfig> {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { latitude: true, longitude: true, madhab: true },
+    });
+
+    if (!user) {
+      throw new BusinessException('USER_NOT_FOUND', HttpStatus.NOT_FOUND);
+    }
+
+    if (user.latitude === null || user.longitude === null) {
+      throw new BusinessException('USER_LOCATION_NOT_SET', HttpStatus.BAD_REQUEST);
+    }
+
+    return {
+      latitude: user.latitude,
+      longitude: user.longitude,
+      madhab: user.madhab,
+    };
+  }
+
   buildSlots(params: PrayerScheduleParams): {
     slots: PrayerSlot[];
     zonedDate: DateTime;
@@ -24,7 +45,7 @@ export class PrayerScheduleService {
     isRamadan: boolean;
     isEidDay: boolean;
   } {
-    const { latitude, longitude, date, timezone, method, madhab } = params;
+    const { latitude, longitude, date, timezone, madhab } = params;
 
     const zonedDate = DateTime.fromISO(date, { zone: timezone });
     if (!zonedDate.isValid) {
@@ -35,7 +56,7 @@ export class PrayerScheduleService {
       latitude,
       longitude,
       zonedDate.toJSDate(),
-      { method, madhab },
+      { madhab },
     );
 
     const hijri = toHijri(zonedDate.startOf('day').toJSDate());

@@ -1,35 +1,10 @@
 import { Type } from 'class-transformer';
-import {
-  IsArray,
-  IsNumber,
-  IsOptional,
-  IsString,
-  MaxLength,
-  ValidateNested,
-} from 'class-validator';
+import { IsArray, IsString, MaxLength, ValidateNested } from 'class-validator';
 
 export class PrayerQuestionsQueryDto {
-  @Type(() => Number)
-  @IsNumber({ maxDecimalPlaces: 8 })
-  lat: number;
-
-  @Type(() => Number)
-  @IsNumber({ maxDecimalPlaces: 8 })
-  lng: number;
-
   @IsString()
   @MaxLength(64)
   tz: string;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(64)
-  method?: string;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(32)
-  madhab?: string;
 }
 
 export class QuestionOptionPublicDto {

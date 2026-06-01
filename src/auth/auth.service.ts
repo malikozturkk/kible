@@ -47,7 +47,18 @@ export class AuthService {
   }
 
   async register(registerDto: RegisterDto): Promise<RegisterResponseDto> {
-    const { username, email, password } = registerDto;
+    const {
+      username,
+      email,
+      password,
+      gender,
+      country,
+      city,
+      latitude,
+      longitude,
+      madhab,
+      language,
+    } = registerDto;
 
     if (!email) {
       throw new BadRequestException('EMAIL_REQUIRED');
@@ -101,6 +112,13 @@ export class AuthService {
       email,
       username,
       passwordHash,
+      gender,
+      country,
+      city,
+      latitude,
+      longitude,
+      madhab,
+      language,
       termsVersion: versions[ConsentType.TERMS_OF_SERVICE],
       privacyPolicyVersion: versions[ConsentType.PRIVACY_POLICY],
     });

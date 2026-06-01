@@ -9,7 +9,7 @@ import {
 import { PrayerScheduleService } from './services/prayer-schedule.service';
 import { PrayerQuizService } from './services/prayer-quiz.service';
 import { GamificationActionService } from './services/gamification-action.service';
-import { PrayerScheduleParams } from './types/gamification.types';
+import { PrayerScheduleParams, PrayerViewRequest } from './types/gamification.types';
 import { PrayerType } from '@prisma/client';
 
 @Injectable()
@@ -21,14 +21,16 @@ export class GamificationService {
     private readonly actionService: GamificationActionService,
   ) {}
 
-  async dailyPrayers(params: PrayerScheduleParams): Promise<DailyPrayersResponseDto> {
+  async dailyPrayers(request: PrayerViewRequest): Promise<DailyPrayersResponseDto> {
+    const params = await this.toScheduleParams(request);
     return this.prayerScheduleService.getDailyView(params);
   }
 
   async prayerQuestions(
-    params: PrayerScheduleParams,
+    request: PrayerViewRequest,
     prayerType: PrayerType,
   ): Promise<PrayerQuestionsResponseDto> {
+    const params = await this.toScheduleParams(request);
     return this.prayerQuizService.issueQuiz(params, prayerType);
   }
 
@@ -37,5 +39,17 @@ export class GamificationService {
     body: GamificationActionRequestDto,
   ): Promise<GamificationActionResponseDto> {
     return this.actionService.dispatch(userId, body);
+  }
+
+  private async toScheduleParams(request: PrayerViewRequest): Promise<PrayerScheduleParams> {
+    const config = await this.prayerScheduleService.getUserPrayerConfig(request.userId);
+    return {
+      userId: request.userId,
+      date: request.date,
+      timezone: request.timezone,
+      latitude: config.latitude,
+      longitude: config.longitude,
+      madhab: config.madhab,
+    };
   }
 }
