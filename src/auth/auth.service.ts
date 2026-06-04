@@ -20,6 +20,7 @@ import { AuthResponseDto } from './dto/auth-response.dto';
 import { AVATAR_COLOR_KEYS, type AvatarColorKey } from './constants/avatar.constants';
 import { AvatarColorsDto } from './dto/avatar-colors.dto';
 import { resolveAvatarColors, resolveAvatarCustomizationFromDb } from './utils/avatar-config.util';
+import { toAuthUser, USER_RESPONSE_SELECT } from './utils/user-response.util';
 import { RegisterResponseDto } from './dto/register-response.dto';
 import { JwtPayload } from './strategies/jwt.strategy';
 import { OtpService } from '../otp/otp.service';
@@ -158,16 +159,9 @@ export class AuthService {
     }
 
     const tokens = await this.generateTokens(user.id, user.username);
-    const { avatarConfig, ...userRest } = user;
     return {
       ...tokens,
-      user: {
-        id: userRest.id,
-        username: userRest.username,
-        email: userRest.email,
-        avatar: userRest.avatar,
-        avatarCustomization: resolveAvatarCustomizationFromDb(avatarConfig),
-      },
+      user: toAuthUser(user),
     };
   }
 
@@ -178,15 +172,7 @@ export class AuthService {
       where: { tokenHash },
       include: {
         user: {
-          select: {
-            id: true,
-            username: true,
-            email: true,
-            avatar: true,
-            avatarConfig: {
-              select: { colors: true, accessories: true, gender: true },
-            },
-          },
+          select: USER_RESPONSE_SELECT,
         },
       },
     });
@@ -196,13 +182,9 @@ export class AuthService {
     }
 
     const tokens = await this.generateTokens(storedToken.user.id, storedToken.user.username);
-    const { avatarConfig, ...userRest } = storedToken.user;
     return {
       ...tokens,
-      user: {
-        ...userRest,
-        avatarCustomization: resolveAvatarCustomizationFromDb(avatarConfig),
-      },
+      user: toAuthUser(storedToken.user),
     };
   }
 
@@ -240,6 +222,10 @@ export class AuthService {
       username: true,
       avatar: true,
       createdAt: true,
+      country: true,
+      city: true,
+      madhab: true,
+      language: true,
     };
 
     const ownerOnly = {
@@ -351,7 +337,7 @@ export class AuthService {
     userId: string,
     updateProfileDto: UpdateProfileDto,
   ): Promise<AuthResponseDto['user']> {
-    const { username, avatar, gender, avatarColors, currentPassword, newPassword } =
+    const { username, avatar, gender, avatarColors, currentPassword, newPassword, language } =
       updateProfileDto;
     if (username) {
       const existingUser = await this.prisma.user.findFirst({
@@ -400,12 +386,17 @@ export class AuthService {
       data: {
         ...(username && { username }),
         ...(avatar !== undefined && { avatar }),
+        ...(language !== undefined && { language }),
       },
       select: {
         id: true,
         username: true,
         email: true,
         avatar: true,
+        country: true,
+        city: true,
+        madhab: true,
+        language: true,
       },
     });
 

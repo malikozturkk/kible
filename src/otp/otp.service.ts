@@ -7,7 +7,7 @@ import { ConsentType, Gender, Madhab } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuthResponseDto } from '../auth/dto/auth-response.dto';
 import { EmailService } from '../email/email.service';
-import { resolveAvatarCustomizationFromDb } from '../auth/utils/avatar-config.util';
+import { toAuthUser, USER_RESPONSE_SELECT } from '../auth/utils/user-response.util';
 
 export interface RegisterData {
   email: string;
@@ -200,15 +200,7 @@ export class OtpService {
               },
             },
           },
-          select: {
-            id: true,
-            username: true,
-            email: true,
-            avatar: true,
-            avatarConfig: {
-              select: { colors: true, accessories: true, gender: true },
-            },
-          },
+          select: USER_RESPONSE_SELECT,
         });
 
         await tx.userConsent.createMany({
@@ -242,14 +234,9 @@ export class OtpService {
 
     const tokens = await this.generateTokens(user.id, user.username);
 
-    const { avatarConfig, ...userRest } = user;
-
     return {
       ...tokens,
-      user: {
-        ...userRest,
-        avatarCustomization: resolveAvatarCustomizationFromDb(avatarConfig),
-      },
+      user: toAuthUser(user),
     };
   }
 

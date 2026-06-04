@@ -59,7 +59,6 @@ export interface WorshipResponseDTO {
 export interface AdhanParams {
   userId: string;
   date: string;
-  timezone: string;
 }
 
 export interface NextPrayerResult {

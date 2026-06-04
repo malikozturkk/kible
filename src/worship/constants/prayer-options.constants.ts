@@ -18,15 +18,6 @@ export interface MadhabOption {
   isDefault: boolean;
 }
 
-export interface PrayerOptionsResponse {
-  calculationMethods: CalculationMethodOption[];
-  madhabs: MadhabOption[];
-  defaults: {
-    method: CalculationMethodKey;
-    madhab: MadhabKey;
-  };
-}
-
 function calculationMethodKeys(): CalculationMethodKey[] {
   return (Object.keys(CalculationMethod) as CalculationMethodKey[]).filter(
     (k) => typeof CalculationMethod[k] === 'function',
@@ -58,23 +49,5 @@ export function resolveAdhanSelection(
   return {
     method: normalizeCalculationMethod(rawMethod) ?? DEFAULT_CALCULATION_METHOD,
     madhab: normalizeMadhab(rawMadhab) ?? DEFAULT_MADHAB,
-  };
-}
-
-export function buildPrayerOptions(): PrayerOptionsResponse {
-  return {
-    calculationMethods: calculationMethodKeys().map((key) => ({
-      key,
-      isDefault: key === DEFAULT_CALCULATION_METHOD,
-    })),
-    madhabs: madhabKeys().map((key) => ({
-      key,
-      value: Madhab[key],
-      isDefault: key === DEFAULT_MADHAB,
-    })),
-    defaults: {
-      method: DEFAULT_CALCULATION_METHOD,
-      madhab: DEFAULT_MADHAB,
-    },
   };
 }

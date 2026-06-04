@@ -15,12 +15,12 @@ export interface UserPrayerConfig {
   latitude: number;
   longitude: number;
   madhab: Madhab;
+  timezone: string;
 }
 
 export interface PrayerViewRequest {
   userId: string;
-  date: string;
-  timezone: string;
+  date?: string;
 }
 
 export interface PrayerScheduleParams {

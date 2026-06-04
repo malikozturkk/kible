@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { DateTime } from 'luxon';
 import { PrismaService } from '../prisma/prisma.service';
 import { DailyPrayersResponseDto } from './dto/daily-prayers.dto';
 import { PrayerQuestionsResponseDto } from './dto/prayer-questions.dto';
@@ -22,15 +23,15 @@ export class GamificationService {
   ) {}
 
   async dailyPrayers(request: PrayerViewRequest): Promise<DailyPrayersResponseDto> {
-    const params = await this.toScheduleParams(request);
+    const params = await this.toScheduleParams(request.userId, request.date);
     return this.prayerScheduleService.getDailyView(params);
   }
 
   async prayerQuestions(
-    request: PrayerViewRequest,
+    userId: string,
     prayerType: PrayerType,
   ): Promise<PrayerQuestionsResponseDto> {
-    const params = await this.toScheduleParams(request);
+    const params = await this.toScheduleParams(userId);
     return this.prayerQuizService.issueQuiz(params, prayerType);
   }
 
@@ -41,12 +42,12 @@ export class GamificationService {
     return this.actionService.dispatch(userId, body);
   }
 
-  private async toScheduleParams(request: PrayerViewRequest): Promise<PrayerScheduleParams> {
-    const config = await this.prayerScheduleService.getUserPrayerConfig(request.userId);
+  private async toScheduleParams(userId: string, date?: string): Promise<PrayerScheduleParams> {
+    const config = await this.prayerScheduleService.getUserPrayerConfig(userId);
     return {
-      userId: request.userId,
-      date: request.date,
-      timezone: request.timezone,
+      userId,
+      date: date ?? DateTime.now().setZone(config.timezone).toISODate()!,
+      timezone: config.timezone,
       latitude: config.latitude,
       longitude: config.longitude,
       madhab: config.madhab,

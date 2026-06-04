@@ -7,8 +7,6 @@ import {
   DEFAULT_CALCULATION_METHOD,
   DEFAULT_MADHAB,
   MadhabKey,
-  PrayerOptionsResponse,
-  buildPrayerOptions,
   resolveAdhanSelection,
 } from '../constants/prayer-options.constants';
 
@@ -62,9 +60,5 @@ export class PrayerTimeFactory {
     const toZoned = (d: Date): DateTime => DateTime.fromJSDate(d, { zone: timezone });
     const keys: PrayerName[] = ['fajr', 'sunrise', 'dhuhr', 'asr', 'maghrib', 'isha'];
     return keys.map((key) => ({ key, time: toZoned(prayerTimes[key]) }));
-  }
-
-  listOptions(): PrayerOptionsResponse {
-    return buildPrayerOptions();
   }
 }

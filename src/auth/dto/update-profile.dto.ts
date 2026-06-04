@@ -2,6 +2,7 @@ import { Type } from 'class-transformer';
 import { IsString, IsOptional, Matches, MinLength, ValidateNested, IsIn } from 'class-validator';
 import { AvatarColorsDto } from './avatar-colors.dto';
 import { GENDER_VALUES, type GenderValue } from '../constants/gender.constants';
+import { SUPPORTED_LANGUAGES } from '../constants/language.constants';
 
 export class UpdateProfileDto {
   @IsString()
@@ -32,4 +33,9 @@ export class UpdateProfileDto {
   @IsOptional()
   @MinLength(8, { message: 'PASSWORD_TOO_SHORT' })
   newPassword?: string;
+
+  @IsString()
+  @IsOptional()
+  @IsIn(SUPPORTED_LANGUAGES, { message: 'INVALID_LANGUAGE' })
+  language?: string;
 }

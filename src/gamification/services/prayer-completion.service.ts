@@ -32,7 +32,7 @@ export class PrayerCompletionService {
     userId: string,
     request: GamificationActionRequestDto,
   ): Promise<PrayerCompletionResultDto> {
-    const { quizId, prayerType, answers, tz: timezone } = request;
+    const { quizId, prayerType, answers } = request;
 
     if (!quizId) {
       throw new BusinessException('QUIZ_ID_REQUIRED', HttpStatus.BAD_REQUEST);
@@ -44,12 +44,10 @@ export class PrayerCompletionService {
       throw new BusinessException('ANSWERS_REQUIRED', HttpStatus.BAD_REQUEST);
     }
 
-    const now = DateTime.now().setZone(timezone);
-    if (!now.isValid) {
-      throw new BusinessException('INVALID_TIMEZONE', HttpStatus.BAD_REQUEST);
-    }
-
     const config = await this.scheduleService.getUserPrayerConfig(userId);
+    const timezone = config.timezone;
+    const now = DateTime.now().setZone(timezone);
+
     const params: PrayerScheduleParams = {
       userId,
       latitude: config.latitude,

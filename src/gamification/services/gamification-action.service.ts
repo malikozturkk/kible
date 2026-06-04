@@ -4,6 +4,7 @@ import { BusinessException } from '../../common/exceptions/business.exception';
 import { LocalDate } from '../../common/utils/local-date';
 import { StreakService } from './streak.service';
 import { PrayerCompletionService } from './prayer-completion.service';
+import { PrayerScheduleService } from './prayer-schedule.service';
 import { GamificationActionType } from '../enums/gamification-action.enum';
 import {
   GamificationActionRequestDto,
@@ -15,6 +16,7 @@ export class GamificationActionService {
   constructor(
     private readonly prayerCompletionService: PrayerCompletionService,
     private readonly streakService: StreakService,
+    private readonly scheduleService: PrayerScheduleService,
   ) {}
 
   async dispatch(
@@ -30,11 +32,9 @@ export class GamificationActionService {
         };
       }
       case GamificationActionType.STREAK_FREEZE: {
-        const now = DateTime.now().setZone(request.tz);
-        if (!now.isValid) {
-          throw new BusinessException('INVALID_TIMEZONE', HttpStatus.BAD_REQUEST);
-        }
-        const today = LocalDate.fromInstant(now, request.tz);
+        const { timezone } = await this.scheduleService.getUserPrayerConfig(userId);
+        const now = DateTime.now().setZone(timezone);
+        const today = LocalDate.fromInstant(now, timezone);
         const result = await this.streakService.useStreakFreeze(userId, today);
         return {
           actionType: GamificationActionType.STREAK_FREEZE,

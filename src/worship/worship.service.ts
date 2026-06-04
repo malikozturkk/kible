@@ -7,6 +7,7 @@ import { PrayerCountdownService } from './services/prayer-countdown.service';
 import { FastingProgressService } from './services/fasting-progress.service';
 import { DayProgressService } from './services/day-progress.service';
 import { WorshipResponseMapper } from './mappers/worship-response.mapper';
+import { resolveTimezone } from '../common/utils/timezone.util';
 
 @Injectable()
 export class WorshipService {
@@ -20,7 +21,7 @@ export class WorshipService {
   ) {}
 
   async adhan(params: AdhanParams): Promise<WorshipResponseDTO> {
-    const { userId, date, timezone } = params;
+    const { userId, date } = params;
 
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
@@ -38,6 +39,7 @@ export class WorshipService {
     const latitude = user.latitude;
     const longitude = user.longitude;
     const madhab = user.madhab;
+    const timezone = resolveTimezone(latitude, longitude);
 
     const zonedDate = DateTime.fromISO(date, { zone: timezone });
     const now = DateTime.now().setZone(timezone);
@@ -110,9 +112,5 @@ export class WorshipService {
       dayProgressPercent,
       fasting,
     };
-  }
-
-  getOptions() {
-    return this.prayerTimeFactory.listOptions();
   }
 }

@@ -7,7 +7,6 @@ import {
   IsOptional,
   IsString,
   Matches,
-  MaxLength,
   ValidateNested,
 } from 'class-validator';
 import { PrayerCategory, PrayerType } from '@prisma/client';
@@ -16,10 +15,6 @@ export class DailyPrayersQueryDto {
   @IsString()
   @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'date must be YYYY-MM-DD' })
   date: string;
-
-  @IsString()
-  @MaxLength(64)
-  tz: string;
 }
 
 export class PrayerCardDto {

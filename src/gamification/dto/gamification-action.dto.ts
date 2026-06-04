@@ -28,10 +28,6 @@ export class GamificationActionRequestDto {
   @IsEnum(GamificationActionType)
   actionType: GamificationActionType;
 
-  @IsString()
-  @MaxLength(64)
-  tz: string;
-
   @IsOptional()
   @IsUUID()
   quizId?: string;

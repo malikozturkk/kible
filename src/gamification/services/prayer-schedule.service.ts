@@ -9,6 +9,7 @@ import { PrayerSlot, PrayerScheduleParams, UserPrayerConfig } from '../types/gam
 import { buildPrayerSlots, isWithinWindow } from '../helpers/prayer-schedule.helper';
 import { toHijri, isRamadan, isEidFitr, isEidAdha, isFriday } from '../helpers/hijri.helper';
 import { DailyPrayersResponseDto, PrayerCardDto } from '../dto/daily-prayers.dto';
+import { resolveTimezone } from '../../common/utils/timezone.util';
 
 @Injectable()
 export class PrayerScheduleService {
@@ -35,6 +36,7 @@ export class PrayerScheduleService {
       latitude: user.latitude,
       longitude: user.longitude,
       madhab: user.madhab,
+      timezone: resolveTimezone(user.latitude, user.longitude),
     };
   }
 

@@ -1,11 +1,5 @@
 import { Type } from 'class-transformer';
-import { IsArray, IsString, MaxLength, ValidateNested } from 'class-validator';
-
-export class PrayerQuestionsQueryDto {
-  @IsString()
-  @MaxLength(64)
-  tz: string;
-}
+import { IsArray, IsString, ValidateNested } from 'class-validator';
 
 export class QuestionOptionPublicDto {
   @IsString()
