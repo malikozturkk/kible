@@ -47,7 +47,7 @@ export class PrayerScheduleService {
     isRamadan: boolean;
     isEidDay: boolean;
   } {
-    const { latitude, longitude, date, timezone, madhab } = params;
+    const { latitude, longitude, date, timezone } = params;
 
     const zonedDate = DateTime.fromISO(date, { zone: timezone });
     if (!zonedDate.isValid) {
@@ -58,7 +58,7 @@ export class PrayerScheduleService {
       latitude,
       longitude,
       zonedDate.toJSDate(),
-      { madhab },
+      { madhab: 'Shafi' },
     );
 
     const hijri = toHijri(zonedDate.startOf('day').toJSDate());
