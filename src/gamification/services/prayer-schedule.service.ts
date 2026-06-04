@@ -61,10 +61,18 @@ export class PrayerScheduleService {
       { madhab: 'Shafi' },
     );
 
+    const tomorrowBuilt = this.prayerTimeFactory.buildPrayerTimesWithMeta(
+      latitude,
+      longitude,
+      zonedDate.plus({ days: 1 }).toJSDate(),
+      { madhab: 'Shafi' },
+    );
+
     const hijri = toHijri(zonedDate.startOf('day').toJSDate());
 
     const slots = buildPrayerSlots({
       todayPrayerTimes: built.prayerTimes,
+      tomorrowPrayerTimes: tomorrowBuilt.prayerTimes,
       zonedDate,
       timezone,
       hijri,
@@ -103,7 +111,7 @@ export class PrayerScheduleService {
     const localDate = LocalDate.fromInstant(zonedDate, timezone);
     const now = DateTime.now().setZone(timezone);
 
-    const [completions, pendingQuizzes] = await Promise.all([
+    const [completions, allQuizzes] = await Promise.all([
       this.prisma.prayerCompletion.findMany({
         where: { userId, prayerDate: localDate.toUtcMidnight() },
       }),
@@ -111,15 +119,21 @@ export class PrayerScheduleService {
         where: {
           userId,
           prayerDate: localDate.toUtcMidnight(),
-          status: 'PENDING',
         },
-        select: { id: true, prayerType: true, expiresAt: true },
+        select: { id: true, prayerType: true, expiresAt: true, status: true },
       }),
     ]);
 
     const completionByType = new Map(completions.map((c) => [c.prayerType, c]));
     const pendingQuizByType = new Map(
-      pendingQuizzes.filter((q) => q.expiresAt > new Date()).map((q) => [q.prayerType, q]),
+      allQuizzes
+        .filter((q) => q.status === 'PENDING' && q.expiresAt > new Date())
+        .map((q) => [q.prayerType, q]),
+    );
+    const lockedByType = new Set(
+      allQuizzes
+        .filter((q) => q.status === 'FAILED' || q.status === 'EXPIRED')
+        .map((q) => q.prayerType),
     );
 
     const cards: PrayerCardDto[] = slots.map((slot) => {
@@ -127,6 +141,7 @@ export class PrayerScheduleService {
       const isCompleted = Boolean(completion);
       const inWindow = isWithinWindow(slot, now);
       const pending = pendingQuizByType.get(slot.type);
+      const isLocked = lockedByType.has(slot.type);
 
       return {
         type: slot.type,
@@ -137,10 +152,11 @@ export class PrayerScheduleService {
         windowEndsAt: slot.windowEndsAt.toISO()!,
         xpReward: slot.xpReward,
         isCompleted,
-        canMarkAsCompleted: !isCompleted && inWindow,
+        canMarkAsCompleted: !isCompleted && !isLocked && inWindow,
         completedAt: completion?.completedAt?.toISOString() ?? null,
         streakContribution: completion?.streakContributed ?? false,
         pendingQuizId: pending?.id ?? null,
+        isLocked,
       };
     });
 

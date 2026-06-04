@@ -55,6 +55,9 @@ export class PrayerCardDto {
   @IsOptional()
   @IsString()
   pendingQuizId: string | null;
+
+  @IsBoolean()
+  isLocked: boolean;
 }
 
 export class DailyPrayersResponseDto {

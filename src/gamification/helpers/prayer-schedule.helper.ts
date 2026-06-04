@@ -2,21 +2,17 @@ import { DateTime } from 'luxon';
 import { PrayerTimes } from 'adhan';
 import { PrayerType } from '@prisma/client';
 import { PrayerSlot } from '../types/gamification.types';
-import {
-  PRAYER_WINDOW_AFTER_MINUTES,
-  PRAYER_WINDOW_BEFORE_MINUTES,
-  getPrayerBaseXp,
-  getPrayerMetadata,
-} from '../constants/prayer.constants';
+import { getPrayerBaseXp, getPrayerMetadata } from '../constants/prayer.constants';
 import { HijriDate, isEidAdha, isEidFitr, isFriday, isRamadan } from './hijri.helper';
 
 export function buildPrayerSlots(args: {
   todayPrayerTimes: PrayerTimes;
+  tomorrowPrayerTimes: PrayerTimes;
   zonedDate: DateTime;
   timezone: string;
   hijri: HijriDate;
 }): PrayerSlot[] {
-  const { todayPrayerTimes, zonedDate, timezone, hijri } = args;
+  const { todayPrayerTimes, tomorrowPrayerTimes, zonedDate, timezone, hijri } = args;
 
   const toZoned = (d: Date): DateTime => DateTime.fromJSDate(d, { zone: timezone });
 
@@ -26,47 +22,57 @@ export function buildPrayerSlots(args: {
   const asr = toZoned(todayPrayerTimes.asr);
   const maghrib = toZoned(todayPrayerTimes.maghrib);
   const isha = toZoned(todayPrayerTimes.isha);
+  const tomorrowFajr = toZoned(tomorrowPrayerTimes.fajr);
+  const friday = isFriday(zonedDate);
 
-  const slots: PrayerSlot[] = [
-    makeSlot('FAJR', fajr),
-    makeSlot('DHUHR', dhuhr),
-    makeSlot('ASR', asr),
-    makeSlot('MAGHRIB', maghrib),
-    makeSlot('ISHA', isha),
-  ];
+  const slots: PrayerSlot[] = [];
+  slots.push(makeSlot('FAJR', fajr, fajr, sunrise));
 
-  if (isFriday(zonedDate)) {
-    slots.splice(2, 0, makeSlot('JUMUAH', dhuhr));
+  if (friday) {
+    slots.push(makeSlot('JUMUAH', dhuhr, dhuhr, asr));
+  } else {
+    slots.push(makeSlot('DHUHR', dhuhr, dhuhr, asr));
   }
+
+  slots.push(makeSlot('ASR', asr, asr, maghrib));
+  slots.push(makeSlot('MAGHRIB', maghrib, maghrib, isha));
+  slots.push(makeSlot('ISHA', isha, isha, tomorrowFajr));
 
   if (isRamadan(hijri)) {
     const tarawih = isha.plus({ minutes: 30 });
-    slots.push(makeSlot('TARAWIH', tarawih));
+    slots.push(makeSlot('TARAWIH', tarawih, tarawih, tomorrowFajr));
   }
 
   if (isEidFitr(hijri)) {
-    slots.unshift(makeSlot('EID_FITR', sunrise.plus({ minutes: 30 })));
+    const eidTime = sunrise.plus({ minutes: 30 });
+    slots.unshift(makeSlot('EID_FITR', eidTime, eidTime, dhuhr));
   }
   if (isEidAdha(hijri)) {
-    slots.unshift(makeSlot('EID_ADHA', sunrise.plus({ minutes: 30 })));
+    const eidTime = sunrise.plus({ minutes: 30 });
+    slots.unshift(makeSlot('EID_ADHA', eidTime, eidTime, dhuhr));
   }
 
   return slots;
 }
 
-function makeSlot(type: PrayerType, scheduledAt: DateTime): PrayerSlot {
+function makeSlot(
+  type: PrayerType,
+  scheduledAt: DateTime,
+  windowStartsAt: DateTime,
+  windowEndsAt: DateTime,
+): PrayerSlot {
   const meta = getPrayerMetadata(type);
   return {
     type,
     category: meta.category,
     scheduledAt,
-    windowStartsAt: scheduledAt.minus({ minutes: PRAYER_WINDOW_BEFORE_MINUTES }),
-    windowEndsAt: scheduledAt.plus({ minutes: PRAYER_WINDOW_AFTER_MINUTES }),
+    windowStartsAt,
+    windowEndsAt,
     xpReward: getPrayerBaseXp(type),
     isObligatory: meta.isObligatory,
   };
 }
 
 export function isWithinWindow(slot: PrayerSlot, now: DateTime): boolean {
-  return now >= slot.windowStartsAt && now <= slot.windowEndsAt;
+  return now >= slot.windowStartsAt && now < slot.windowEndsAt;
 }

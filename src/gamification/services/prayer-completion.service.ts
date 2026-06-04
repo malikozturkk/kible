@@ -11,10 +11,7 @@ import { PrayerQuizService } from './prayer-quiz.service';
 import { PRAYER_FIRST_OF_DAY_BONUS_XP } from '../constants/prayer.constants';
 import { isWithinWindow } from '../helpers/prayer-schedule.helper';
 import { PrayerScheduleParams } from '../types/gamification.types';
-import {
-  GamificationActionRequestDto,
-  PrayerCompletionResultDto,
-} from '../dto/gamification-action.dto';
+import { PrayerCompletionResultDto } from '../dto/gamification-action.dto';
 
 @Injectable()
 export class PrayerCompletionService {
@@ -28,22 +25,11 @@ export class PrayerCompletionService {
     private readonly xpService: XpService,
   ) {}
 
-  async handle(
+  async completeFromPassedQuiz(
     userId: string,
-    request: GamificationActionRequestDto,
+    quizId: string,
+    prayerType: PrayerType,
   ): Promise<PrayerCompletionResultDto> {
-    const { quizId, prayerType, answers } = request;
-
-    if (!quizId) {
-      throw new BusinessException('QUIZ_ID_REQUIRED', HttpStatus.BAD_REQUEST);
-    }
-    if (!prayerType) {
-      throw new BusinessException('PRAYER_TYPE_REQUIRED', HttpStatus.BAD_REQUEST);
-    }
-    if (!answers || answers.length === 0) {
-      throw new BusinessException('ANSWERS_REQUIRED', HttpStatus.BAD_REQUEST);
-    }
-
     const config = await this.scheduleService.getUserPrayerConfig(userId);
     const timezone = config.timezone;
     const now = DateTime.now().setZone(timezone);
@@ -78,12 +64,6 @@ export class PrayerCompletionService {
     try {
       return await this.prisma.$transaction(async (tx) => {
         await this.streakService.lockStreakRow(tx, userId);
-        await this.quizService.validateAnswers(tx, {
-          userId,
-          quizId,
-          answers,
-          now,
-        });
 
         const existingCount = await tx.prayerCompletion.count({
           where: { userId, prayerDate },

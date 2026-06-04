@@ -1,5 +1,12 @@
 import { HttpStatus, Injectable } from '@nestjs/common';
-import { Prisma, PrayerQuestion, PrayerType } from '@prisma/client';
+import {
+  Prisma,
+  PrayerQuestion,
+  PrayerQuizQuestion,
+  PrayerQuizQuestionStatus,
+  PrayerQuizStatus,
+  PrayerType,
+} from '@prisma/client';
 import { DateTime } from 'luxon';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BusinessException } from '../../common/exceptions/business.exception';
@@ -8,11 +15,35 @@ import { PrayerSlot, PrayerScheduleParams } from '../types/gamification.types';
 import {
   PRAYER_QUIZ_EXPIRY_GRACE_MINUTES,
   PRAYER_QUIZ_QUESTION_COUNT,
+  PRAYER_QUIZ_QUESTION_TIME_LIMIT_GRACE_SECONDS,
+  PRAYER_QUIZ_QUESTION_TIME_LIMIT_SECONDS,
 } from '../constants/prayer.constants';
 import { isWithinWindow } from '../helpers/prayer-schedule.helper';
 import { PrayerScheduleService } from './prayer-schedule.service';
-import { PrayerQuestionsResponseDto, QuestionPublicDto } from '../dto/prayer-questions.dto';
-import { QuizAnswerDto } from '../dto/gamification-action.dto';
+import {
+  AnswerPrayerQuestionResponseDto,
+  AnswerResultStatus,
+  PrayerQuestionsResponseDto,
+  QuestionOptionPublicDto,
+  QuestionPublicDto,
+  StartPrayerQuestionResponseDto,
+} from '../dto/prayer-questions.dto';
+
+const FINAL_QUESTION_STATUSES = new Set<PrayerQuizQuestionStatus>([
+  PrayerQuizQuestionStatus.CORRECT,
+  PrayerQuizQuestionStatus.INCORRECT,
+  PrayerQuizQuestionStatus.EXPIRED,
+  PrayerQuizQuestionStatus.LOCKED,
+]);
+
+type QuestionWithOptions = PrayerQuestion & {
+  options: { id: string; text: string; orderIndex: number }[];
+};
+
+export interface AllCorrectResult {
+  submissionId: string;
+  prayerType: PrayerType;
+}
 
 @Injectable()
 export class PrayerQuizService {
@@ -32,23 +63,34 @@ export class PrayerQuizService {
     this.assertWindowOpen(slot, now);
     await this.assertNotAlreadyCompleted(userId, slot, zonedDate, timezone);
     const prayerDate = LocalDate.fromInstant(zonedDate, timezone);
+    const prayerDateUtc = prayerDate.toUtcMidnight();
+
+    await this.assertNotLockedOut(userId, prayerType, prayerDateUtc);
+
     const existing = await this.prisma.prayerQuizSubmission.findFirst({
       where: {
         userId,
         prayerType,
-        prayerDate: prayerDate.toUtcMidnight(),
-        status: 'PENDING',
+        prayerDate: prayerDateUtc,
+        status: PrayerQuizStatus.PENDING,
         expiresAt: { gt: new Date() },
       },
+      include: { questions: { orderBy: { orderIndex: 'asc' } } },
     });
 
     if (existing) {
-      const questions = await this.loadQuestionsForSubmission(existing.questionIds);
-      return {
-        quizId: existing.id,
-        expiresAt: existing.expiresAt.toISOString(),
-        questions,
-      };
+      const refreshedQuestions = await this.expireOverdueQuestions(
+        existing.id,
+        existing.questions,
+        now,
+      );
+      const failed = refreshedQuestions.find((q) => q.status === PrayerQuizQuestionStatus.EXPIRED);
+      if (failed) {
+        await this.failSubmission(existing.id, refreshedQuestions);
+        throw new BusinessException('PRAYER_MARKING_LOCKED', HttpStatus.CONFLICT);
+      }
+      const questionMap = await this.loadQuestionsForSubmission(existing.questionIds);
+      return this.buildIssueResponse(existing.id, existing.expiresAt, PrayerQuizStatus.PENDING, refreshedQuestions, questionMap);
     }
 
     const pool: Array<{ id: string }> = await this.prisma.prayerQuestion.findMany({
@@ -75,96 +117,236 @@ export class PrayerQuizService {
       data: {
         userId,
         prayerType,
-        prayerDate: prayerDate.toUtcMidnight(),
+        prayerDate: prayerDateUtc,
         timezone,
         questionIds: pickedIds,
         windowStartsAt: slot.windowStartsAt.toJSDate(),
         windowEndsAt: slot.windowEndsAt.toJSDate(),
         expiresAt,
-        status: 'PENDING',
+        status: PrayerQuizStatus.PENDING,
         attemptCount: 0,
+        questions: {
+          create: pickedIds.map((qid, idx) => ({
+            questionId: qid,
+            orderIndex: idx,
+            timeLimitSeconds: PRAYER_QUIZ_QUESTION_TIME_LIMIT_SECONDS,
+            status: PrayerQuizQuestionStatus.PENDING,
+          })),
+        },
       },
+      include: { questions: { orderBy: { orderIndex: 'asc' } } },
     });
 
-    const questions = await this.loadQuestionsForSubmission(pickedIds);
+    const questionMap = await this.loadQuestionsForSubmission(pickedIds);
 
-    return {
-      quizId: submission.id,
-      expiresAt: submission.expiresAt.toISOString(),
-      questions,
-    };
+    return this.buildIssueResponse(
+      submission.id,
+      submission.expiresAt,
+      PrayerQuizStatus.PENDING,
+      submission.questions,
+      questionMap,
+    );
   }
 
-  async validateAnswers(
-    tx: Prisma.TransactionClient,
-    args: {
-      userId: string;
-      quizId: string;
-      answers: QuizAnswerDto[];
-      now: DateTime;
-    },
-  ): Promise<{
-    submission: NonNullable<Awaited<ReturnType<typeof tx.prayerQuizSubmission.findUnique>>>;
-  }> {
-    const { userId, quizId, answers, now } = args;
-
-    const submission = await tx.prayerQuizSubmission.findUnique({
+  async startQuestion(
+    userId: string,
+    quizId: string,
+    questionId: string,
+  ): Promise<StartPrayerQuestionResponseDto> {
+    const submission = await this.prisma.prayerQuizSubmission.findUnique({
       where: { id: quizId },
+      include: { questions: { orderBy: { orderIndex: 'asc' } } },
     });
     if (!submission || submission.userId !== userId) {
       throw new BusinessException('QUIZ_NOT_FOUND', HttpStatus.NOT_FOUND);
     }
-    if (submission.status !== 'PENDING') {
-      throw new BusinessException('QUIZ_NOT_PENDING', HttpStatus.CONFLICT);
+
+    const now = DateTime.now().setZone(submission.timezone);
+    await this.assertQuizUsable(submission, now);
+
+    const refreshedQuestions = await this.expireOverdueQuestions(
+      submission.id,
+      submission.questions,
+      now,
+    );
+    if (refreshedQuestions.some((q) => q.status === PrayerQuizQuestionStatus.EXPIRED)) {
+      await this.failSubmission(submission.id, refreshedQuestions);
+      throw new BusinessException('PRAYER_MARKING_LOCKED', HttpStatus.CONFLICT);
     }
-    if (submission.expiresAt <= now.toJSDate()) {
-      await tx.prayerQuizSubmission.update({
-        where: { id: quizId },
-        data: { status: 'EXPIRED' },
-      });
-      throw new BusinessException('QUIZ_EXPIRED', HttpStatus.GONE);
+
+    const target = refreshedQuestions.find((q) => q.questionId === questionId);
+    if (!target) {
+      throw new BusinessException('QUIZ_QUESTION_NOT_FOUND', HttpStatus.NOT_FOUND);
     }
-    if (now.toJSDate() < submission.windowStartsAt || now.toJSDate() > submission.windowEndsAt) {
-      throw new BusinessException('PRAYER_WINDOW_CLOSED', HttpStatus.CONFLICT);
-    }
-    if (answers.length !== submission.questionIds.length) {
-      throw new BusinessException('ANSWER_COUNT_MISMATCH', HttpStatus.BAD_REQUEST);
-    }
-    const submittedIds = new Set(answers.map((a) => a.questionId));
-    for (const qid of submission.questionIds) {
-      if (!submittedIds.has(qid)) {
-        throw new BusinessException('ANSWER_QUESTION_MISMATCH', HttpStatus.BAD_REQUEST);
+
+    if (target.status !== PrayerQuizQuestionStatus.PENDING) {
+      if (target.status === PrayerQuizQuestionStatus.SHOWN) {
+        const questionMap = await this.loadQuestionsForSubmission(submission.questionIds);
+        return {
+          quizId: submission.id,
+          quizStatus: submission.status,
+          question: this.toPublicQuestion(target, questionMap.get(target.questionId)!, now),
+        };
       }
+      throw new BusinessException('QUIZ_QUESTION_NOT_STARTABLE', HttpStatus.CONFLICT);
     }
 
-    const options = await tx.prayerQuestionOption.findMany({
-      where: { questionId: { in: submission.questionIds } },
-    });
-    const optionById = new Map(options.map((o) => [o.id, o]));
+    const shownAt = now.toJSDate();
+    const deadlineAt = now
+      .plus({ seconds: PRAYER_QUIZ_QUESTION_TIME_LIMIT_SECONDS })
+      .toJSDate();
 
-    let allCorrect = true;
-    for (const answer of answers) {
-      const opt = optionById.get(answer.optionId);
-      if (!opt || opt.questionId !== answer.questionId || !opt.isCorrect) {
-        allCorrect = false;
-        break;
-      }
-    }
-
-    await tx.prayerQuizSubmission.update({
-      where: { id: quizId },
+    const updated = await this.prisma.prayerQuizQuestion.update({
+      where: { id: target.id },
       data: {
-        attemptCount: { increment: 1 },
-        submittedAt: now.toJSDate(),
-        status: allCorrect ? 'PENDING' : 'FAILED',
+        status: PrayerQuizQuestionStatus.SHOWN,
+        shownAt,
+        deadlineAt,
       },
     });
 
-    if (!allCorrect) {
-      throw new BusinessException('QUIZ_ANSWERS_INCORRECT', HttpStatus.UNPROCESSABLE_ENTITY);
-    }
+    const questionMap = await this.loadQuestionsForSubmission(submission.questionIds);
 
-    return { submission };
+    return {
+      quizId: submission.id,
+      quizStatus: submission.status,
+      question: this.toPublicQuestion(updated, questionMap.get(updated.questionId)!, now),
+    };
+  }
+
+  async answerQuestion(
+    userId: string,
+    quizId: string,
+    questionId: string,
+    optionId: string,
+  ): Promise<{
+    response: AnswerPrayerQuestionResponseDto;
+    allCorrect: AllCorrectResult | null;
+  }> {
+    return this.prisma.$transaction(async (tx) => {
+      const submission = await tx.prayerQuizSubmission.findUnique({
+        where: { id: quizId },
+        include: { questions: { orderBy: { orderIndex: 'asc' } } },
+      });
+      if (!submission || submission.userId !== userId) {
+        throw new BusinessException('QUIZ_NOT_FOUND', HttpStatus.NOT_FOUND);
+      }
+
+      const now = DateTime.now().setZone(submission.timezone);
+      await this.assertQuizUsable(submission, now);
+
+      const target = submission.questions.find((q) => q.questionId === questionId);
+      if (!target) {
+        throw new BusinessException('QUIZ_QUESTION_NOT_FOUND', HttpStatus.NOT_FOUND);
+      }
+
+      if (FINAL_QUESTION_STATUSES.has(target.status)) {
+        throw new BusinessException('QUIZ_QUESTION_ALREADY_ANSWERED', HttpStatus.CONFLICT);
+      }
+      if (target.status === PrayerQuizQuestionStatus.PENDING) {
+        throw new BusinessException('QUIZ_QUESTION_NOT_STARTED', HttpStatus.CONFLICT);
+      }
+
+      const deadlineAt = target.deadlineAt
+        ? DateTime.fromJSDate(target.deadlineAt).setZone(submission.timezone)
+        : null;
+      const graceCutoff = deadlineAt?.plus({
+        seconds: PRAYER_QUIZ_QUESTION_TIME_LIMIT_GRACE_SECONDS,
+      });
+
+      if (!deadlineAt || !graceCutoff || now > graceCutoff) {
+        const expired = await tx.prayerQuizQuestion.update({
+          where: { id: target.id },
+          data: {
+            status: PrayerQuizQuestionStatus.EXPIRED,
+            answeredAt: now.toJSDate(),
+          },
+        });
+        await this.lockRemainingQuestions(tx, submission.id, target.id);
+        await tx.prayerQuizSubmission.update({
+          where: { id: submission.id },
+          data: {
+            status: PrayerQuizStatus.FAILED,
+            submittedAt: now.toJSDate(),
+            attemptCount: { increment: 1 },
+          },
+        });
+        const questionMap = await this.loadQuestionsForSubmission(submission.questionIds);
+        const response: AnswerPrayerQuestionResponseDto = {
+          quizId: submission.id,
+          quizStatus: PrayerQuizStatus.FAILED,
+          result: AnswerResultStatus.EXPIRED,
+          isLocked: true,
+          question: this.toPublicQuestion(expired, questionMap.get(expired.questionId)!, now),
+        };
+        return { response, allCorrect: null };
+      }
+
+      const option = await tx.prayerQuestionOption.findUnique({ where: { id: optionId } });
+      if (!option || option.questionId !== target.questionId) {
+        throw new BusinessException('QUIZ_OPTION_INVALID', HttpStatus.BAD_REQUEST);
+      }
+
+      const isCorrect = option.isCorrect;
+      const nextStatus = isCorrect
+        ? PrayerQuizQuestionStatus.CORRECT
+        : PrayerQuizQuestionStatus.INCORRECT;
+
+      const updated = await tx.prayerQuizQuestion.update({
+        where: { id: target.id },
+        data: {
+          status: nextStatus,
+          selectedOptionId: option.id,
+          answeredAt: now.toJSDate(),
+          isCorrect,
+        },
+      });
+
+      const questionMap = await this.loadQuestionsForSubmission(submission.questionIds);
+
+      if (!isCorrect) {
+        await this.lockRemainingQuestions(tx, submission.id, target.id);
+        await tx.prayerQuizSubmission.update({
+          where: { id: submission.id },
+          data: {
+            status: PrayerQuizStatus.FAILED,
+            submittedAt: now.toJSDate(),
+            attemptCount: { increment: 1 },
+          },
+        });
+        const response: AnswerPrayerQuestionResponseDto = {
+          quizId: submission.id,
+          quizStatus: PrayerQuizStatus.FAILED,
+          result: AnswerResultStatus.INCORRECT,
+          isLocked: true,
+          question: this.toPublicQuestion(updated, questionMap.get(updated.questionId)!, now),
+        };
+        return { response, allCorrect: null };
+      }
+
+      const refreshed = await tx.prayerQuizQuestion.findMany({
+        where: { submissionId: submission.id },
+        orderBy: { orderIndex: 'asc' },
+      });
+      const allCorrectNow = refreshed.every(
+        (q) => q.status === PrayerQuizQuestionStatus.CORRECT,
+      );
+
+      const response: AnswerPrayerQuestionResponseDto = {
+        quizId: submission.id,
+        quizStatus: submission.status,
+        result: AnswerResultStatus.CORRECT,
+        isLocked: false,
+        question: this.toPublicQuestion(updated, questionMap.get(updated.questionId)!, now),
+      };
+
+      return {
+        response,
+        allCorrect: allCorrectNow
+          ? { submissionId: submission.id, prayerType: submission.prayerType }
+          : null,
+      };
+    });
   }
 
   async markPassed(
@@ -175,8 +357,90 @@ export class PrayerQuizService {
     await tx.prayerQuizSubmission.update({
       where: { id: quizId },
       data: {
-        status: 'PASSED',
+        status: PrayerQuizStatus.PASSED,
         prayerCompletionId,
+      },
+    });
+  }
+
+  private async assertQuizUsable(
+    submission: { status: PrayerQuizStatus; expiresAt: Date; windowStartsAt: Date; windowEndsAt: Date },
+    now: DateTime,
+  ): Promise<void> {
+    if (submission.status !== PrayerQuizStatus.PENDING) {
+      throw new BusinessException('PRAYER_MARKING_LOCKED', HttpStatus.CONFLICT);
+    }
+    if (submission.expiresAt <= now.toJSDate()) {
+      throw new BusinessException('QUIZ_EXPIRED', HttpStatus.GONE);
+    }
+    if (
+      now.toJSDate() < submission.windowStartsAt ||
+      now.toJSDate() >= submission.windowEndsAt
+    ) {
+      throw new BusinessException('PRAYER_WINDOW_CLOSED', HttpStatus.CONFLICT);
+    }
+  }
+
+  private async expireOverdueQuestions(
+    submissionId: string,
+    questions: PrayerQuizQuestion[],
+    now: DateTime,
+  ): Promise<PrayerQuizQuestion[]> {
+    const updates: PrayerQuizQuestion[] = [];
+    for (const q of questions) {
+      if (
+        q.status === PrayerQuizQuestionStatus.SHOWN &&
+        q.deadlineAt &&
+        now.toJSDate() >
+          new Date(
+            q.deadlineAt.getTime() + PRAYER_QUIZ_QUESTION_TIME_LIMIT_GRACE_SECONDS * 1000,
+          )
+      ) {
+        const updated = await this.prisma.prayerQuizQuestion.update({
+          where: { id: q.id },
+          data: {
+            status: PrayerQuizQuestionStatus.EXPIRED,
+            answeredAt: now.toJSDate(),
+          },
+        });
+        updates.push(updated);
+      } else {
+        updates.push(q);
+      }
+    }
+    return updates;
+  }
+
+  private async failSubmission(
+    submissionId: string,
+    questions: PrayerQuizQuestion[],
+  ): Promise<void> {
+    const now = new Date();
+    await this.prisma.$transaction(async (tx) => {
+      await this.lockRemainingQuestions(tx, submissionId, null);
+      await tx.prayerQuizSubmission.update({
+        where: { id: submissionId },
+        data: {
+          status: PrayerQuizStatus.FAILED,
+          submittedAt: now,
+        },
+      });
+    });
+  }
+
+  private async lockRemainingQuestions(
+    tx: Prisma.TransactionClient,
+    submissionId: string,
+    excludeQuestionRowId: string | null,
+  ): Promise<void> {
+    await tx.prayerQuizQuestion.updateMany({
+      where: {
+        submissionId,
+        status: { in: [PrayerQuizQuestionStatus.PENDING, PrayerQuizQuestionStatus.SHOWN] },
+        ...(excludeQuestionRowId ? { id: { not: excludeQuestionRowId } } : {}),
+      },
+      data: {
+        status: PrayerQuizQuestionStatus.LOCKED,
       },
     });
   }
@@ -212,6 +476,25 @@ export class PrayerQuizService {
     }
   }
 
+  private async assertNotLockedOut(
+    userId: string,
+    prayerType: PrayerType,
+    prayerDateUtc: Date,
+  ): Promise<void> {
+    const failed = await this.prisma.prayerQuizSubmission.findFirst({
+      where: {
+        userId,
+        prayerType,
+        prayerDate: prayerDateUtc,
+        status: { in: [PrayerQuizStatus.FAILED, PrayerQuizStatus.EXPIRED] },
+      },
+      select: { id: true },
+    });
+    if (failed) {
+      throw new BusinessException('PRAYER_MARKING_LOCKED', HttpStatus.CONFLICT);
+    }
+  }
+
   private pickRandom<T>(pool: T[], count: number): T[] {
     if (count > pool.length) {
       throw new Error('pickRandom: count exceeds pool size');
@@ -224,10 +507,10 @@ export class PrayerQuizService {
     return arr.slice(0, count);
   }
 
-  private async loadQuestionsForSubmission(ids: string[]): Promise<QuestionPublicDto[]> {
-    const questions: (PrayerQuestion & {
-      options: { id: string; text: string; orderIndex: number }[];
-    })[] = await this.prisma.prayerQuestion.findMany({
+  private async loadQuestionsForSubmission(
+    ids: string[],
+  ): Promise<Map<string, QuestionWithOptions>> {
+    const questions = await this.prisma.prayerQuestion.findMany({
       where: { id: { in: ids } },
       include: {
         options: {
@@ -236,15 +519,73 @@ export class PrayerQuizService {
         },
       },
     });
+    return new Map(questions.map((q) => [q.id, q]));
+  }
 
-    const byId = new Map(questions.map((q) => [q.id, q]));
-    return ids
-      .map((id) => byId.get(id))
-      .filter((q): q is NonNullable<typeof q> => Boolean(q))
-      .map((q) => ({
-        id: q.id,
-        prompt: q.prompt,
-        options: q.options.map((o) => ({ id: o.id, text: o.text })),
-      }));
+  private buildIssueResponse(
+    quizId: string,
+    expiresAt: Date,
+    quizStatus: PrayerQuizStatus,
+    rows: PrayerQuizQuestion[],
+    questionMap: Map<string, QuestionWithOptions>,
+  ): PrayerQuestionsResponseDto {
+    const now = DateTime.now();
+    const isLocked = quizStatus !== PrayerQuizStatus.PENDING;
+    return {
+      quizId,
+      expiresAt: expiresAt.toISOString(),
+      quizStatus,
+      isLocked,
+      questions: rows
+        .map((row) => {
+          const meta = questionMap.get(row.questionId);
+          if (!meta) return null;
+          return this.toPublicQuestion(row, meta, now);
+        })
+        .filter((q): q is QuestionPublicDto => Boolean(q)),
+    };
+  }
+
+  private toPublicQuestion(
+    row: PrayerQuizQuestion,
+    meta: QuestionWithOptions,
+    now: DateTime,
+  ): QuestionPublicDto {
+    const options: QuestionOptionPublicDto[] = meta.options.map((o) => ({
+      id: o.id,
+      text: o.text,
+    }));
+    const deadlineAtIso = row.deadlineAt ? row.deadlineAt.toISOString() : null;
+    const shownAtIso = row.shownAt ? row.shownAt.toISOString() : null;
+    const answeredAtIso = row.answeredAt ? row.answeredAt.toISOString() : null;
+    const isExpiredByClock = Boolean(
+      row.deadlineAt &&
+        now.toJSDate() >
+          new Date(row.deadlineAt.getTime() + PRAYER_QUIZ_QUESTION_TIME_LIMIT_GRACE_SECONDS * 1000),
+    );
+    const isExpired =
+      row.status === PrayerQuizQuestionStatus.EXPIRED ||
+      (row.status === PrayerQuizQuestionStatus.SHOWN && isExpiredByClock);
+
+    const isAnswerable =
+      row.status === PrayerQuizQuestionStatus.SHOWN && !isExpired;
+    const canBeAnsweredAgain = false;
+
+    return {
+      id: row.questionId,
+      prompt: meta.prompt,
+      options,
+      orderIndex: row.orderIndex,
+      timeLimitSeconds: row.timeLimitSeconds,
+      status: row.status,
+      shownAt: shownAtIso,
+      deadlineAt: deadlineAtIso,
+      answeredAt: answeredAtIso,
+      selectedOptionId: row.selectedOptionId,
+      isCorrect: row.isCorrect,
+      isAnswerable,
+      canBeAnsweredAgain,
+      isExpired,
+    };
   }
 }

@@ -1,7 +1,7 @@
 import { PrayerCategory, PrayerType } from '@prisma/client';
 
-export const PRAYER_WINDOW_BEFORE_MINUTES = 15;
-export const PRAYER_WINDOW_AFTER_MINUTES = 15;
+export const PRAYER_QUIZ_QUESTION_TIME_LIMIT_SECONDS = 25;
+export const PRAYER_QUIZ_QUESTION_TIME_LIMIT_GRACE_SECONDS = 2;
 export const PRAYER_QUIZ_EXPIRY_GRACE_MINUTES = 5;
 export const PRAYER_QUIZ_QUESTION_COUNT = 3;
 export const PRAYER_FIRST_OF_DAY_BONUS_XP = 10;

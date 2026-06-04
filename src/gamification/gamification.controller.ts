@@ -6,6 +6,7 @@ import {
   HttpStatus,
   Param,
   ParseEnumPipe,
+  ParseUUIDPipe,
   Post,
   Query,
   Request,
@@ -16,7 +17,12 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import type { AuthenticatedRequest } from '../auth/strategies/jwt.strategy';
 import { GamificationService } from './gamification.service';
 import { DailyPrayersQueryDto, DailyPrayersResponseDto } from './dto/daily-prayers.dto';
-import { PrayerQuestionsResponseDto } from './dto/prayer-questions.dto';
+import {
+  AnswerPrayerQuestionBodyDto,
+  AnswerPrayerQuestionResponseDto,
+  PrayerQuestionsResponseDto,
+  StartPrayerQuestionResponseDto,
+} from './dto/prayer-questions.dto';
 import {
   GamificationActionRequestDto,
   GamificationActionResponseDto,
@@ -44,6 +50,32 @@ export class GamificationController {
     @Param('prayerId', new ParseEnumPipe(PrayerType)) prayerId: PrayerType,
   ): Promise<PrayerQuestionsResponseDto> {
     return this.gamificationService.prayerQuestions(req.user.id, prayerId);
+  }
+
+  @Post('prayer-questions/:quizId/questions/:questionId/start')
+  @HttpCode(HttpStatus.OK)
+  async startPrayerQuestion(
+    @Request() req: AuthenticatedRequest,
+    @Param('quizId', new ParseUUIDPipe()) quizId: string,
+    @Param('questionId', new ParseUUIDPipe()) questionId: string,
+  ): Promise<StartPrayerQuestionResponseDto> {
+    return this.gamificationService.startPrayerQuestion(req.user.id, quizId, questionId);
+  }
+
+  @Post('prayer-questions/:quizId/questions/:questionId/answer')
+  @HttpCode(HttpStatus.OK)
+  async answerPrayerQuestion(
+    @Request() req: AuthenticatedRequest,
+    @Param('quizId', new ParseUUIDPipe()) quizId: string,
+    @Param('questionId', new ParseUUIDPipe()) questionId: string,
+    @Body() body: AnswerPrayerQuestionBodyDto,
+  ): Promise<AnswerPrayerQuestionResponseDto> {
+    return this.gamificationService.answerPrayerQuestion(
+      req.user.id,
+      quizId,
+      questionId,
+      body.optionId,
+    );
   }
 
   @Post('action')
