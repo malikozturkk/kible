@@ -1,111 +1,119 @@
-<p align="center">
-  <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
-</p>
+# kible
 
-[circleci-image]: https://img.shields.io/circleci/build/github/nestjs/nest/master?token=abc123def456
-[circleci-url]: https://circleci.com/gh/nestjs/nest
+Backend API for **NamazGo** — a gamified Islamic prayer companion. NamazGo learns where to face from
+Kible.
 
-  <p align="center">A progressive <a href="http://nodejs.org" target="_blank">Node.js</a> framework for building efficient and scalable server-side applications.</p>
-    <p align="center">
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/v/@nestjs/core.svg" alt="NPM Version" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/l/@nestjs/core.svg" alt="Package License" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/dm/@nestjs/common.svg" alt="NPM Downloads" /></a>
-<a href="https://circleci.com/gh/nestjs/nest" target="_blank"><img src="https://img.shields.io/circleci/build/github/nestjs/nest/master" alt="CircleCI" /></a>
-<a href="https://discord.gg/G7Qnnhy" target="_blank"><img src="https://img.shields.io/badge/discord-online-brightgreen.svg" alt="Discord"/></a>
-<a href="https://opencollective.com/nest#backer" target="_blank"><img src="https://opencollective.com/nest/backers/badge.svg" alt="Backers on Open Collective" /></a>
-<a href="https://opencollective.com/nest#sponsor" target="_blank"><img src="https://opencollective.com/nest/sponsors/badge.svg" alt="Sponsors on Open Collective" /></a>
-  <a href="https://paypal.me/kamilmysliwiec" target="_blank"><img src="https://img.shields.io/badge/Donate-PayPal-ff3f59.svg" alt="Donate us"/></a>
-    <a href="https://opencollective.com/nest#sponsor"  target="_blank"><img src="https://img.shields.io/badge/Support%20us-Open%20Collective-41B883.svg" alt="Support us"></a>
-  <a href="https://twitter.com/nestframework" target="_blank"><img src="https://img.shields.io/twitter/follow/nestframework.svg?style=social&label=Follow" alt="Follow us on Twitter"></a>
-</p>
-  <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
-  [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
+Built with NestJS 11, PostgreSQL 16 and Prisma 7. It serves prayer times, step-by-step worship
+guides, a quiz-gated prayer completion loop, XP/level/streak gamification, a social follow graph,
+and account, OTP and consent management.
 
-## Description
+There is no frontend in this repository.
 
-NamazGo’s backend. NamazGo learns where to face from Kible.
+---
 
-## Project setup
+## Features
 
-```bash
-$ yarn install
-```
+| Area             | What it does                                                                                                                                     |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Auth**         | Email/username + password login, JWT access tokens, opaque refresh tokens, OTP-verified registration, password reset by email                    |
+| **Consent**      | Versioned Terms of Service / Privacy Policy acceptance with re-accept detection                                                                  |
+| **Worship**      | Daily prayer times (`adhan`, Turkey method), next-prayer countdown, fasting progress, Hijri date, Ramadan day counter                            |
+| **Gamification** | Per-prayer time windows, a 3-question timed quiz that gates completion, XP with a level curve and badges, daily streaks with a freeze mechanic   |
+| **Guides**       | Static Turkish step-by-step guides for wudu, ghusl and each of the five daily prayers + Jumuah, with an optional random knowledge-check question |
+| **Users**        | Trigram-based username search ranked by social distance, public and self statistics                                                              |
+| **Social**       | Follow / unfollow, follower and following lists, mutual-follower previews                                                                        |
 
-## Compile and run the project
+## Quick start
+
+Requires Node.js (ES2023-capable, 20+), yarn and Docker.
 
 ```bash
-# development
-$ yarn run start
+# 1. Install
+yarn install
 
-# watch mode
-$ yarn run start:dev
+# 2. Configure — copy the template and fill in real values
+cp .env.example .env
 
-# production mode
-$ yarn run start:prod
+# 3. Start PostgreSQL (host port 5434)
+docker compose up -d
+
+# 4. Apply migrations
+yarn prisma:migrate
+
+# 5. Seed the prayer-quiz question bank (raw SQL, run once)
+psql "$DATABASE_URL" -f prisma/seeds/prayer_questions.seed.sql
+
+# 6. Run
+yarn start:dev
 ```
 
-## Run tests
+The API listens on **http://localhost:3000**. `GET /` returns `Hello World!` as a liveness check.
 
-```bash
-# unit tests
-$ yarn run test
+Every environment variable in `.env.example` is required — the app throws on boot if the consent
+versions or `DATABASE_URL` are missing. See [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md) for what
+each one does.
 
-# e2e tests
-$ yarn run test:e2e
+## Scripts
 
-# test coverage
-$ yarn run test:cov
+| Script                       | Purpose                                   |
+| ---------------------------- | ----------------------------------------- |
+| `yarn start:dev`             | Watch-mode dev server                     |
+| `yarn start:prod`            | Run the compiled build (`node dist/main`) |
+| `yarn build`                 | Compile to `dist/`                        |
+| `yarn lint`                  | ESLint with `--fix`                       |
+| `yarn format`                | Prettier over the repo                    |
+| `yarn test`                  | Jest unit tests                           |
+| `yarn prisma:migrate`        | `prisma migrate dev`                      |
+| `yarn prisma:migrate:deploy` | `prisma migrate deploy` (production)      |
+| `yarn prisma:generate`       | Regenerate the Prisma client              |
+| `yarn prisma:studio`         | Prisma Studio                             |
+
+`yarn test:e2e` is declared but its config file (`test/jest-e2e.json`) is not present in the repo.
+
+## API shape
+
+Every response uses the same envelope, applied globally by `ResponseInterceptor` and
+`GlobalExceptionFilter`:
+
+```jsonc
+// success
+{ "date": 1730000000000, "success": true, "data": { }, "error": null }
+
+// failure
+{ "date": 1730000000000, "success": false, "data": null,
+  "error": { "code": 404, "message": "USER_NOT_FOUND", "attachment": null } }
 ```
 
-## Deployment
+`error.message` is always a machine-readable key in `SCREAMING_SNAKE_CASE` — the client is
+responsible for localizing it. Full endpoint reference: [`docs/API.md`](docs/API.md).
 
-When you're ready to deploy your NestJS application to production, there are some key steps you can
-take to ensure it runs as efficiently as possible. Check out the
-[deployment documentation](https://docs.nestjs.com/deployment) for more information.
+## Registration flow
 
-If you are looking for a cloud-based platform to deploy your NestJS application, check out
-[Mau](https://mau.nestjs.com), our official platform for deploying NestJS applications on AWS. Mau
-makes deployment straightforward and fast, requiring just a few simple steps:
+Registration is two-phase, because the `users` row is only created after the email is proven:
 
-```bash
-$ yarn install -g @nestjs/mau
-$ mau deploy
+```
+POST /auth/register  →  { tempToken }        pending row in otp_verifications + OTP email (3 min)
+POST /otp/verify     →  { accessToken, refreshToken, user }
+   Authorization: Bearer <tempToken>          creates user + credentials + xp + streak
+                                              + avatar config + consent records, atomically
 ```
 
-With Mau, you can deploy your application in just a few clicks, allowing you to focus on building
-features rather than managing infrastructure.
+The temp token is valid for 10 minutes; the OTP code for 3. Expired rows are swept every minute by a
+cron job.
 
-## Resources
+## Documentation
 
-Check out a few resources that may come in handy when working with NestJS:
-
-- Visit the [NestJS Documentation](https://docs.nestjs.com) to learn more about the framework.
-- For questions and support, please visit our [Discord channel](https://discord.gg/G7Qnnhy).
-- To dive deeper and get more hands-on experience, check out our official video
-  [courses](https://courses.nestjs.com/).
-- Deploy your application to AWS with the help of [NestJS Mau](https://mau.nestjs.com) in just a few
-  clicks.
-- Visualize your application graph and interact with the NestJS application in real-time using
-  [NestJS Devtools](https://devtools.nestjs.com).
-- Need help with your project (part-time to full-time)? Check out our official
-  [enterprise support](https://enterprise.nestjs.com).
-- To stay in the loop and get updates, follow us on [X](https://x.com/nestframework) and
-  [LinkedIn](https://linkedin.com/company/nestjs).
-- Looking for a job, or have a job to offer? Check out our official
-  [Jobs board](https://jobs.nestjs.com).
-
-## Support
-
-Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the
-amazing backers. If you'd like to join them, please
-[read more here](https://docs.nestjs.com/support).
-
-## Stay in touch
-
-- Author - [Kamil Myśliwiec](https://twitter.com/kammysliwiec)
-- Website - [https://nestjs.com](https://nestjs.com/)
-- Twitter - [@nestframework](https://twitter.com/nestframework)
+| Document                                       | Contents                                                                              |
+| ---------------------------------------------- | ------------------------------------------------------------------------------------- |
+| [`CLAUDE.md`](CLAUDE.md)                       | Rules (R1–R9) every AI agent must follow, plus conventions, invariants and known gaps |
+| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Module graph, request lifecycle, cross-cutting concerns                               |
+| [`docs/API.md`](docs/API.md)                   | Endpoint-by-endpoint reference                                                        |
+| [`docs/DOMAIN.md`](docs/DOMAIN.md)             | Prayer windows, quiz, XP, levels, streaks                                             |
+| [`docs/DATA-MODEL.md`](docs/DATA-MODEL.md)     | Prisma models and their lifecycles                                                    |
+| [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md)   | Setup, env vars, migrations, seeding, troubleshooting                                 |
 
 ## License
 
-Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
+The [`LICENSE`](LICENSE) file is MIT (© 2026 Malik Öztürk), while `package.json` declares
+`"license": "UNLICENSED"` and `"private": true`. These disagree — worth reconciling before the code
+is published or shared.
