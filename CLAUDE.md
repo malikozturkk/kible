@@ -123,7 +123,8 @@ Before you report a code change as complete:
 serves prayer times, step-by-step worship guides, a prayer-completion quiz loop, XP/level/streak
 gamification, social follow graph, and account/consent management.
 
-- Public API only — there is no frontend in this repo. `FRONTEND_BASE_URL` points at a separate app.
+- Public API only — there is no frontend in this repo. `FRONTEND_BASE_URL` points at a separate app
+  and doubles as the allowed CORS origin.
 - Content (guides, questions, emails) is **Turkish**; code identifiers and error keys are English.
 - Repo: `https://github.com/malikozturkk/kible`, default branch `main`.
 
@@ -281,8 +282,11 @@ These are verified facts about the current tree, not bugs to fold into an unrela
   verified at runtime._ Verify before relying on it, and before changing it.
 - `User.gender` does not exist; gender lives on `user_avatar_configs` (and transiently on
   `otp_verifications`).
-- The CORS origin `http://localhost:3001` is hardcoded in `src/main.ts` (the port is configurable
-  via `PORT`, defaulting to `3000`).
+- CORS allows exactly one origin, taken from `FRONTEND_BASE_URL` (trailing slashes stripped) and
+  defaulting to `http://localhost:3000` in `src/main.ts`. That variable also builds the
+  password-reset link, so it must stay a bare `scheme://host:port`; there is no list/regex support,
+  so a second frontend origin needs a code change. The port is configurable via `PORT`, defaulting
+  to `3000`.
 - Test coverage is effectively nil: `src/app.controller.spec.ts` is the only spec.
 
 ## Safety notes

@@ -30,25 +30,29 @@ questions, `GET /gamification/prayer-questions/:type` fails with `INSUFFICIENT_P
 All of them are required. Missing values fail at different times, which matters when debugging a
 boot error.
 
-| Variable                                       | Used by                                                | Failure mode if missing                                                |
-| ---------------------------------------------- | ------------------------------------------------------ | ---------------------------------------------------------------------- |
-| `DATABASE_URL`                                 | `PrismaService`, `prisma.config.ts`                    | throws in the `PrismaService` constructor at boot                      |
-| `JWT_SECRET`                                   | `AuthModule`, `OtpModule`, `JwtStrategy`               | Passport throws at boot; tokens would otherwise be unsigned            |
-| `JWT_EXPIRES_IN`                               | access-token lifetime (`ms` format: `15m`, `1h`, `7d`) | `undefined` expiry → tokens never expire                               |
-| `PEPPER`                                       | password hashing                                       | silently hashes `password + "undefined"` — **all hashes become wrong** |
-| `FRONTEND_BASE_URL`                            | password-reset link                                    | link becomes `undefined/reset-password?...`                            |
-| `CONSENT_VERSION_TERMS_OF_SERVICE`             | `consentConfig`                                        | **throws at boot**: `CONSENT_VERSIONS_NOT_CONFIGURED`                  |
-| `CONSENT_VERSION_PRIVACY_POLICY`               | `consentConfig`                                        | same                                                                   |
-| `MAILJET_API_KEY` / `MAILJET_API_SECRET`       | `EmailService`                                         | OTP and reset emails fail at send time                                 |
-| `MAILJET_SENDER_EMAIL` / `MAILJET_SENDER_NAME` | `EmailService`                                         | Mailjet rejects the message                                            |
-| `MAILJET_OTP_TEMPLATE_ID`                      | OTP email                                              | `Number(undefined)` → `NaN` → Mailjet rejects                          |
-| `MAILJET_FORGOT_PASSWORD_TEMPLATE_ID`          | reset email                                            | same                                                                   |
+| Variable                                       | Used by                                                | Failure mode if missing                                                                 |
+| ---------------------------------------------- | ------------------------------------------------------ | --------------------------------------------------------------------------------------- |
+| `DATABASE_URL`                                 | `PrismaService`, `prisma.config.ts`                    | throws in the `PrismaService` constructor at boot                                       |
+| `JWT_SECRET`                                   | `AuthModule`, `OtpModule`, `JwtStrategy`               | Passport throws at boot; tokens would otherwise be unsigned                             |
+| `JWT_EXPIRES_IN`                               | access-token lifetime (`ms` format: `15m`, `1h`, `7d`) | `undefined` expiry → tokens never expire                                                |
+| `PEPPER`                                       | password hashing                                       | silently hashes `password + "undefined"` — **all hashes become wrong**                  |
+| `FRONTEND_BASE_URL`                            | password-reset link **and** the CORS origin            | link becomes `undefined/reset-password?...`; CORS falls back to `http://localhost:3000` |
+| `CONSENT_VERSION_TERMS_OF_SERVICE`             | `consentConfig`                                        | **throws at boot**: `CONSENT_VERSIONS_NOT_CONFIGURED`                                   |
+| `CONSENT_VERSION_PRIVACY_POLICY`               | `consentConfig`                                        | same                                                                                    |
+| `MAILJET_API_KEY` / `MAILJET_API_SECRET`       | `EmailService`                                         | OTP and reset emails fail at send time                                                  |
+| `MAILJET_SENDER_EMAIL` / `MAILJET_SENDER_NAME` | `EmailService`                                         | Mailjet rejects the message                                                             |
+| `MAILJET_OTP_TEMPLATE_ID`                      | OTP email                                              | `Number(undefined)` → `NaN` → Mailjet rejects                                           |
+| `MAILJET_FORGOT_PASSWORD_TEMPLATE_ID`          | reset email                                            | same                                                                                    |
 
 `PEPPER` is the dangerous one: it fails **silently**. Changing it invalidates every stored password
 hash, so treat it as immutable once any account exists.
 
-`PORT` is optional and not listed in `.env.example` — `src/main.ts` falls back to `3000`. The CORS
-origin (`http://localhost:3001`) is hardcoded and has no env override.
+`PORT` is optional and not listed in `.env.example` — `src/main.ts` falls back to `3000`.
+
+`FRONTEND_BASE_URL` does double duty: it is the base of the password-reset link **and** the only
+origin CORS accepts (trailing slashes are stripped). Consequences: the frontend must be served from
+exactly that scheme/host/port, the value must not contain a path, and there is no way to allow a
+second origin without a code change.
 
 ## Database workflow
 
@@ -159,7 +163,7 @@ If you need a user without touching email, insert the rows directly (`users` + `
 | `409 PRAYER_WINDOW_NOT_OPEN_YET` / `PRAYER_WINDOW_CLOSED`    | you are outside the prayer's window; windows are derived from the user's coordinates, not the server clock's zone |
 | `409 PRAYER_MARKING_LOCKED`                                  | a failed/expired quiz already exists for that prayer today — by design, there is no retry                         |
 | `409 NO_STREAK_FREEZE_AVAILABLE`                             | expected: nothing in the codebase ever grants a freeze                                                            |
-| CORS blocked in the browser                                  | the allowed origin is hardcoded to `http://localhost:3001` in `main.ts`                                           |
+| CORS blocked in the browser                                  | the browser's origin does not match `FRONTEND_BASE_URL` (default `http://localhost:3000`) exactly                 |
 | Prisma type errors after a schema edit                       | run `yarn prisma:generate`                                                                                        |
 
 ## Deployment notes
@@ -176,6 +180,6 @@ yarn start:prod               # node dist/main
 
 `docker-compose.yml` provisions the local database only; it does not build or run the API.
 
-Before a first deployment, someone will need to decide on: the hardcoded CORS origin, a production
-`PEPPER` and `JWT_SECRET`, whether both cron sweepers should run in every replica, and a cleanup
-strategy for `refresh_tokens` (nothing prunes that table today).
+Before a first deployment, someone will need to decide on: the production `FRONTEND_BASE_URL` value
+(it gates CORS), a production `PEPPER` and `JWT_SECRET`, whether both cron sweepers should run in
+every replica, and a cleanup strategy for `refresh_tokens` (nothing prunes that table today).

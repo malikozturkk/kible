@@ -7,16 +7,18 @@ lives. Endpoint details are in [`API.md`](API.md); business rules are in [`DOMAI
 
 ```ts
 NestFactory.create(AppModule)
-  .enableCors({ origin: 'http://localhost:3001', credentials: true, … })
+  .enableCors({ origin: FRONTEND_BASE_URL ?? 'http://localhost:3000', credentials: true, … })
   .useGlobalPipes(new ValidationPipe({ whitelist, forbidNonWhitelisted, transform }))
   .useGlobalInterceptors(new ResponseInterceptor())
   .useGlobalFilters(new GlobalExceptionFilter())
   .listen(process.env.PORT ?? 3000)
 ```
 
-The CORS origin is **hardcoded**; the port falls back to `3000` when `PORT` is unset.
-`dotenv/config` is imported at the top of `main.ts` and again in `prisma.config.ts`, so `.env` is
-loaded before Nest reads any `process.env` value.
+The CORS origin comes from `FRONTEND_BASE_URL` (trailing slashes stripped) and falls back to
+`http://localhost:3000` when unset — a single origin, not a list. The same variable also builds the
+password-reset link, so it must stay a bare `scheme://host:port`. The port falls back to `3000` when
+`PORT` is unset. `dotenv/config` is imported at the top of `main.ts` and again in
+`prisma.config.ts`, so `.env` is loaded before Nest reads any `process.env` value.
 
 ## Module graph
 
