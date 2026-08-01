@@ -117,11 +117,23 @@ All fields optional; only the supplied ones change.
   "currentPassword": "…",
   "newPassword": "…", // both required together, new ≥ 8
   "language": "tr", // must be in SUPPORTED_LANGUAGES (only "tr")
+
+  // Location + madhab. Prayer times are derived from these, so they must stay editable.
+  "country": "Türkiye", // ≤ 64
+  "city": "Konya", // ≤ 85
+  "latitude": 37.8746, // -90..90, ≤ 8 decimals
+  "longitude": 32.4932, // -180..180, ≤ 8 decimals
+  "madhab": "HANAFI", // SHAFI | HANAFI
 }
 ```
 
+The four location fields move as a unit — sending some but not all returns
+`INCOMPLETE_LOCATION_UPDATE` (400). A city without its coordinates would leave prayer times pointing
+at the old place. `madhab` may be sent on its own.
+
 Returns the updated user with `avatarCustomization`. Errors: `USERNAME_ALREADY_EXISTS` (409),
-`PASSWORD_FIELDS_REQUIRED` (400), `INVALID_CURRENT_PASSWORD` (401).
+`PASSWORD_FIELDS_REQUIRED` (400), `INVALID_CURRENT_PASSWORD` (401), `INCOMPLETE_LOCATION_UPDATE`
+(400).
 
 Valid `avatarColors` keys: `iris`, `pupil`, `hair`, `skin`, `lips`, `nose`, `earInner`, `neck`,
 `eyebrow`, `outfit`, `background`. Unset keys fall back to `DEFAULT_AVATAR_COLORS`.
@@ -294,10 +306,14 @@ today's has passed. Errors: `USER_NOT_FOUND` (400), `USER_LOCATION_NOT_SET` (400
       "isObligatory": true,
       "scheduledAt": "…",
       "windowStartsAt": "…",
-      "windowEndsAt": "…",
-      "xpReward": 20,
+      "windowEndsAt": "…", // end of the prayer's own window — marking up to here is ON_TIME
+      "markWindowEndsAt": "…", // start of the next daily prayer — the hard cutoff for marking
+      "xpReward": 20, // XP for an on-time marking
+      "lateXpReward": 10, // XP for a late (kaza) marking
       "isCompleted": false,
-      "canMarkAsCompleted": true, // not completed && not locked && now inside the window
+      "canMarkAsCompleted": true, // not completed && not locked && now inside the MARK window
+      "isLateWindow": false, // still markable, but would be recorded as LATE
+      "completionStatus": null, // "ON_TIME" | "LATE" once completed, else null
       "completedAt": null,
       "streakContribution": false,
       "pendingQuizId": null, // id of an open PENDING quiz, if any
@@ -309,6 +325,45 @@ today's has passed. Errors: `USER_NOT_FOUND` (400), `USER_LOCATION_NOT_SET` (400
 
 The slot list is day-dependent: `JUMUAH` replaces `DHUHR` on Fridays, `TARAWIH` is appended during
 Ramadan, and `EID_FITR` / `EID_ADHA` are prepended on those days. See [`DOMAIN.md`](DOMAIN.md).
+
+`markWindowEndsAt` equals `windowEndsAt` for every prayer whose own window already runs up to the
+next daily prayer; only `FAJR` (sunrise → dhuhr) and `JUMUAH` (dhuhr + 15 min → asr) have a real
+late tail. See [`DOMAIN.md` §2.1](DOMAIN.md#21-on-time-vs-late-kaza).
+
+### `GET /gamification/prayer-history?from=YYYY-MM-DD&to=YYYY-MM-DD`
+
+Per-day completion counts for the caller — the source of truth for calendar/heat-map views. Both
+params are required and must match `^\d{4}-\d{2}-\d{2}$`.
+
+```jsonc
+{
+  "from": "2026-07-01",
+  "to": "2026-07-31", // may be earlier than requested: future days are dropped
+  "timezone": "Europe/Istanbul",
+  "days": [
+    {
+      "date": "2026-07-01",
+      "completedCount": 2, // rows in prayer_completions for that day
+      "totalCount": 5, // slots that existed that day (Friday/Ramadan/Eid change this)
+      "isComplete": false, // totalCount > 0 && completedCount >= totalCount
+      "isFrozen": false, // covered by a streak_freeze_usages row
+    },
+  ],
+}
+```
+
+`totalCount` is recomputed per day via `PrayerScheduleService.buildSlots()`, so a Friday reports the
+Jumuah slot and a Ramadan day includes Tarawih. Days before the user had any activity are still
+returned, with `completedCount: 0`.
+
+Errors:
+
+| Status | `message`                        | When                                         |
+| ------ | -------------------------------- | -------------------------------------------- |
+| `400`  | `INVALID_DATE_RANGE`             | unparsable date, or `to` earlier than `from` |
+| `400`  | `PRAYER_HISTORY_RANGE_TOO_LARGE` | span > `PRAYER_HISTORY_MAX_RANGE_DAYS` (62)  |
+| `400`  | `USER_LOCATION_NOT_SET`          | the user has no `latitude` / `longitude`     |
+| `404`  | `USER_NOT_FOUND`                 | —                                            |
 
 ### `GET /gamification/prayer-questions/:prayerId`
 
@@ -374,7 +429,9 @@ Body `{ "optionId": "<uuid>" }`.
     "prayerType": "ASR",
     "prayerDate": "2026-07-31",
     "completedAt": "…",
+    "status": "ON_TIME", // ON_TIME | LATE — decided when the quiz was passed
     "xpAwarded": 25,
+    "xpBeforePenalty": 25, // what it would have earned on time; > xpAwarded when LATE
     "xpAfter": 310,
     "level": 3,
     "leveledUp": false,
@@ -451,15 +508,27 @@ by trigram similarity, then alphabetically. See the caveats in [`DOMAIN.md`](DOM
 
 Full statistics for the caller: level (with `xp`, `totalXp`, `currentLevelXp`, `xpToNextLevel`,
 `totalXpForNextLevel`, `badgeKey`, `progressPercent`), streak (`current`, `longest`, `freezeCount`,
-`lastActiveDate`), prayers (`totalCompleted`, per-type `breakdown`, `lastCompletedAt`, and a `quiz`
-block with `totalAttempts` / `passed` / `failed` / `accuracyPercent`), and `social` counts.
+`lastActiveDate`), prayers (`totalCompleted`, per-type `breakdown`, a `punctuality` block,
+`lastCompletedAt`, and a `quiz` block with `totalAttempts` / `passed` / `failed` /
+`accuracyPercent`), and `social` counts.
+
+```jsonc
+"punctuality": {
+  "onTime": 42,        // completions marked inside the prayer's own window
+  "late": 8,           // completions marked as kaza
+  "onTimePercent": 84, // onTime / (onTime + late), rounded; 0 when nothing is completed
+}
+```
 
 `accuracyPercent` counts only `PASSED` + `FAILED` submissions; `PENDING` and `EXPIRED` are excluded.
+
+`streak.lastActiveDate` is a **calendar day** (`"2026-07-31"`), not an instant — it is serialized
+with `LocalDate.fromPersisted(...).toISO()` to match the `@db.Date` column it comes from.
 
 ### `GET /users/:username/stats`
 
 The public subset: level (`level`, `badgeKey`, `progressPercent` only), streak (`current`,
-`longest`), prayers (`totalCompleted`, `breakdown`), `social`, and `isSelf`. Errors:
+`longest`), prayers (`totalCompleted`, `breakdown`, `punctuality`), `social`, and `isSelf`. Errors:
 `USER_NOT_FOUND` (404).
 
 ---
@@ -500,8 +569,17 @@ authentication.**
 ```
 
 Content is static and in Turkish. With **80 % probability** one randomly chosen step carries a
-`randomQuestion` (`{ id, question, options }`) drawn from the `questions` table for that guide;
-answers are checked via `POST /question/guide/check`. Errors: `GUIDE_NOT_FOUND` (400), plus 400 from
+`randomQuestion` drawn from the `scope = GUIDE` rows of `prayer_questions` for that guide:
+
+```jsonc
+{
+  "id": "…",
+  "question": "Abdest alırken organları sırayla yıkamaya ne denir?",
+  "options": [{ "id": "…", "text": "Tertip" }], // isCorrect is never sent
+}
+```
+
+Answers are checked via `POST /question/guide/check`. Errors: `GUIDE_NOT_FOUND` (400), plus 400 from
 `ParseEnumPipe` for an unknown type.
 
 ---
@@ -510,11 +588,22 @@ answers are checked via `POST /question/guide/check`. Errors: `GUIDE_NOT_FOUND` 
 
 ### `POST /question/guide/check` — —
 
-`{ "questionId": "…", "answer": "…" }` → `{ "isCorrect": true, "correctAnswer": "…" }`. Comparison
-is trimmed and lowercased with the Turkish locale (`toLocaleLowerCase('tr-TR')`), so `I`/`İ` behave
-correctly. **No authentication**, and the correct answer is returned on every call.
+`{ "questionId": "<uuid>", "optionId": "<uuid>" }` →
+`{ "isCorrect": true, "correctOptionId": "<uuid>" }`.
 
-Errors: `QUESTION_NOT_FOUND` (404).
+Grading is an **option-id lookup**, not a text comparison — the old `toLocaleLowerCase('tr-TR')`
+match is gone, so punctuation or whitespace drift in an option can no longer mark a correct answer
+wrong. **No authentication**, and `correctOptionId` is returned on every call so the client can
+highlight the right choice.
 
-> This is the free-text guide question flow, entirely separate from the `PrayerQuestion` /
-> `PrayerQuizSubmission` tables used by the gamification quiz.
+Errors:
+
+| Status | `message`                        | When                                                      |
+| ------ | -------------------------------- | --------------------------------------------------------- |
+| `400`  | `QUIZ_OPTION_INVALID`            | `optionId` does not belong to `questionId`                |
+| `404`  | `QUESTION_NOT_FOUND`             | no `scope = GUIDE` question with that id                  |
+| `404`  | `QUESTION_HAS_NO_CORRECT_OPTION` | data defect — the question has no option with `isCorrect` |
+
+> The guide check and the gamification quiz now share one table (`prayer_questions`, discriminated
+> by `scope`) but remain separate **flows**: the guide check awards no XP, records no completion,
+> and has no session tables. `PrayerQuizSubmission` / `PrayerQuizQuestion` stay quiz-session-only.

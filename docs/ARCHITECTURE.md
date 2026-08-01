@@ -163,8 +163,10 @@ adding an enum member, a strategy class, and registering it in both `GuidesModul
 rather than one fat service:
 
 - `gamification/services/` — `PrayerScheduleService` (build slots, daily view), `PrayerQuizService`
-  (issue/start/answer), `PrayerCompletionService` (the completion transaction), `StreakService`,
-  `XpService`, `GamificationActionService` (a dispatch switch over `GamificationActionType`).
+  (issue/start/answer), `PrayerCompletionService` (the completion transaction),
+  `PrayerHistoryService` (per-day completion counts over a date range; reuses
+  `PrayerScheduleService.buildSlots()` to get each day's slot count), `StreakService`, `XpService`,
+  `GamificationActionService` (a dispatch switch over `GamificationActionType`).
   `GamificationService` is a thin facade the controller talks to.
 - `worship/services/` — `PrayerCountdownService`, `FastingProgressService`, `DayProgressService`,
   plus `WorshipResponseMapper` for the response shape.

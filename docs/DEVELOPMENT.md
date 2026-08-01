@@ -15,7 +15,7 @@ yarn install
 cp .env.example .env          # then fill in the blanks
 docker compose up -d          # postgres:16-alpine, host port 5434
 yarn prisma:migrate           # applies migrations + generates the client
-psql "$DATABASE_URL" -f prisma/seeds/prayer_questions.seed.sql
+yarn prisma:seed              # fills both question banks (idempotent)
 yarn start:dev
 ```
 
@@ -80,15 +80,56 @@ compose file for anything reachable.
 
 ## Seeding
 
-There is no `prisma db seed` hook. The one seed file is raw SQL:
-
 ```bash
-psql "$DATABASE_URL" -f prisma/seeds/prayer_questions.seed.sql
+yarn prisma:seed              # ts-node prisma/seed.ts
 ```
 
-It is wrapped in a transaction and creates the `pgcrypto` extension for `gen_random_uuid()`. It is
-**not idempotent** — there is no unique constraint on `prompt`, so running it twice duplicates every
-question. The file contains a commented-out cleanup block at the top for a clean reseed.
+There is still no `prisma db seed` hook in `prisma.config.ts`; the script is invoked directly.
+
+**It is idempotent.** Every row gets a deterministic id (`seedUuid()` in
+`prisma/seeds/seed-types.ts` — a v5-style UUID derived with `node:crypto` from a fixed namespace
+plus the scope and the prompt text), and the seed `upsert`s on that id. Running it twice updates the
+same rows instead of duplicating them. Editing a question's prompt mints a new id, so the old row
+survives as an orphan — deactivate or delete it by hand if that matters.
+
+Nothing is ever deleted, with one exception: options whose `orderIndex` is beyond the current option
+list are removed, so shortening a question does not leave stale choices behind.
+
+Before writing anything the script validates the data and aborts on: a duplicate prompt within a
+pool, an option count below 2, a question without exactly one correct option, an empty
+`explanation`, or a guide question whose `correctAnswer` is not one of its `options`.
+
+What it writes:
+
+| Rows                                     | Count | Source                               |
+| ---------------------------------------- | ----- | ------------------------------------ |
+| `prayer_questions` with `scope = PRAYER` | 200   | `prisma/seeds/prayer-questions/*.ts` |
+| `prayer_questions` with `scope = GUIDE`  | 64    | `prisma/seeds/guide-questions.ts`    |
+
+Both go into the same table (plus their `prayer_question_options` rows). Guide questions are
+authored as a flat `options: string[]` + `correctAnswer`; the seed expands that into option rows and
+derives `isCorrect`.
+
+Option rows are upserted on `(questionId, orderIndex)`, not on a synthetic id — that is what lets
+rows created by the `unify_question_bank` migration (which minted random option ids) be updated in
+place instead of duplicated.
+
+> **Migrating from the old SQL seed.** `prisma/seeds/prayer_questions.seed.sql` has been removed;
+> all 60 of its questions were carried over into the TypeScript data. If you ran that file before,
+> its rows carry random UUIDs that the new seed cannot match, so seeding on top of them leaves 60
+> duplicates. On a local database, clear the table and reseed:
+>
+> ```sql
+> DELETE FROM prayer_questions;   -- prayer_question_options cascades
+> ```
+>
+> ```bash
+> yarn prisma:seed
+> ```
+>
+> `prayer_quiz_questions.questionId` is `onDelete: Restrict`, so this fails while any quiz
+> submission still references a question. Delete those submissions first, or reseed on a fresh
+> database.
 
 ## Testing
 
@@ -159,7 +200,7 @@ If you need a user without touching email, insert the rows directly (`users` + `
 | Boot: `DATABASE_URL environment variable is not set`         | `.env` missing or not loaded                                                                                      |
 | Login always `INVALID_CREDENTIALS` for a known-good password | `PEPPER` changed since the hash was written                                                                       |
 | `400 VALIDATION_ERROR` on a request that looks correct       | an extra field — `forbidNonWhitelisted: true` rejects anything not on the DTO                                     |
-| `503 INSUFFICIENT_PRAYER_QUESTIONS`                          | the quiz bank has fewer than 3 active rows — run the seed                                                         |
+| `503 INSUFFICIENT_PRAYER_QUESTIONS`                          | the pool for that prayer type has fewer than 3 active rows — run `yarn prisma:seed`                               |
 | `409 PRAYER_WINDOW_NOT_OPEN_YET` / `PRAYER_WINDOW_CLOSED`    | you are outside the prayer's window; windows are derived from the user's coordinates, not the server clock's zone |
 | `409 PRAYER_MARKING_LOCKED`                                  | a failed/expired quiz already exists for that prayer today — by design, there is no retry                         |
 | `409 NO_STREAK_FREEZE_AVAILABLE`                             | expected: nothing in the codebase ever grants a freeze                                                            |

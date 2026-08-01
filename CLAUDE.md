@@ -156,8 +156,13 @@ yarn format                   # prettier --write .
 yarn build                    # nest build
 yarn test                     # jest (only one spec exists today)
 yarn prisma:generate          # regenerate client after schema.prisma changes
+yarn prisma:seed              # fill both question banks (idempotent, see docs/DEVELOPMENT.md)
 yarn prisma:studio
 ```
+
+`yarn lint` runs `eslint --fix`, so it **rewrites files as a side effect**. Run it deliberately and
+check `git status` afterwards; to inspect without touching the tree use
+`npx eslint --no-fix <path>`.
 
 `yarn test:e2e` is defined in `package.json` but points at `./test/jest-e2e.json`, which **does not
 exist** in this repo — the script will fail until that config is added.
@@ -168,7 +173,8 @@ exist** in this repo — the script will fail until that config is added.
 prisma/
   schema.prisma               # single source of truth for the DB
   migrations/                 # 5 migrations, oldest 20260420201800_consent
-  seeds/prayer_questions.seed.sql   # raw SQL, run manually (no `prisma db seed` hook)
+  seed.ts                     # idempotent seed runner — `yarn prisma:seed`
+  seeds/                      # seed data: prayer-questions/*.ts, guide-questions.ts
 src/
   main.ts                     # bootstrap: CORS, ValidationPipe, interceptor, filter, listen()
   app.module.ts               # composition root
@@ -182,7 +188,7 @@ src/
   worship/                    # prayer times, countdowns, fasting + day progress
   gamification/               # daily prayer slots, quiz, completion, XP, streak
   guides/                     # static step-by-step wudu/ghusl/prayer guides (strategy pattern)
-  questions/                  # free-text guide questions (separate from the prayer quiz)
+  questions/                  # guide-quiz check (shares the question bank, scope = GUIDE)
   config/consent.config.ts    # fails fast if consent version env vars are missing
 ```
 
@@ -245,12 +251,29 @@ are warnings. Run `yarn lint` before finishing.
   times: Fajr `fajr→sunrise`, Dhuhr `dhuhr→asr` (replaced by **Jumuah on Fridays**), Asr
   `asr→maghrib`, Maghrib `maghrib→isha`, Isha `isha→tomorrow's fajr`. Tarawih (Ramadan) is
   `isha+30m→tomorrow's fajr`; Eid prayers are `sunrise+30m→dhuhr` and are prepended to the list.
-- **Calculation method is always `Turkey`.** `/worship` uses the user's `madhab`, but
-  `PrayerScheduleService` (gamification) **hardcodes `Shafi`** — intentional, see commit `823c539`.
-  Changing one without the other desynchronizes quiz windows from displayed prayer times.
+  **Jumuah is the exception**: its window is only `dhuhr−15m→dhuhr+15m`
+  (`JUMUAH_MARK_WINDOW_MINUTES`), not the full dhuhr→asr span.
+- **Every slot has two ends.** `windowEndsAt` closes the prayer's own time; `markWindowEndsAt` is
+  the start of the next _daily_ prayer and is the real cutoff for marking. Marking in between is
+  allowed and recorded as `PrayerCompletionStatus.LATE` (kaza) for **half** the prayer's XP
+  (`LATE_PRAYER_XP_MULTIPLIER`; the first-of-day bonus is not reduced). Guard code must use
+  `isWithinMarkWindow()`, not `isWithinWindow()` — the latter now answers only "would this be on
+  time?". Streaks ignore the distinction entirely. Tarawih/Eid never shorten another slot's cutoff.
+- **Calculation method is always `Turkey`; the madhab is always the user's.** Both `/worship` and
+  `PrayerScheduleService` (gamification) now pass the stored `madhab`. Gamification used to hardcode
+  `Shafi` (commit `823c539`), which put the two screens more than an hour apart for Hanafi users and
+  closed Dhuhr's markable window at the Shafi Asr. Keep the two in sync — they must agree.
 - **A prayer is completed only by passing its quiz.** There is no "mark as prayed" endpoint. 3
   questions, 25 s each (+2 s grace). One wrong or late answer fails the submission, locks the
   remaining questions, and **locks the user out of that prayer for that date entirely** — no retry.
+- **One question bank, two scopes.** `prayer_questions` holds both the prayer-quiz questions
+  (`scope = PRAYER`, selected by `prayerType`, where NULL means "every prayer") and the guide checks
+  (`scope = GUIDE`, selected by `guideId`). Any query that builds a prayer-quiz pool **must** filter
+  `scope = PRAYER` — a `GUIDE` row also has `prayerType = null` and would otherwise be selectable.
+  Answers are always graded by option id; there is no text comparison anywhere.
+- **Hijri conversion is anchored to 12:00 UTC of the local calendar day** (`toHijri` takes a Luxon
+  `DateTime`, not a `Date`). Handing it a raw instant is what made Ramadan and both Eids land a day
+  late for every user east of UTC — `2027-03-09T00:00+03` is `2027-03-08T21:00Z`.
 - **Uniqueness is `(userId, prayerType, prayerDate)`** on `prayer_completions`; the code checks
   first and also catches Prisma `P2002` as `PRAYER_ALREADY_COMPLETED`.
 - **Streak advances only on the first completion of a local day**, and the freeze flow uses a
@@ -264,7 +287,8 @@ These are verified facts about the current tree, not bugs to fold into an unrela
 
 - `streakFreezeCount` is **never incremented** anywhere in `src/` (only decremented). Users start at
   0, so `POST /gamification/action` with `STREAK_FREEZE` always fails with
-  `NO_STREAK_FREEZE_AVAILABLE` unless the row is edited by hand.
+  `NO_STREAK_FREEZE_AVAILABLE` unless the row is edited by hand. A granting mechanic (a paid store)
+  is planned but deliberately not built yet — do not add an automatic one.
 - `StreakService.inspectStreakRisk()` is fully implemented but never called — no endpoint exposes
   it.
 - `@Public()` (`src/common/decorators/public.decorator.ts`) is defined and read by `ConsentGuard`,

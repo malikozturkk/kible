@@ -40,6 +40,11 @@ enum PrayerCategory {
   EID
 }
 
+enum QuestionScope {
+  PRAYER
+  GUIDE
+}
+
 enum PrayerQuizStatus {
   PENDING
   PASSED
@@ -60,6 +65,11 @@ enum StreakFreezeReason {
   USER_INITIATED
 }
 
+enum PrayerCompletionStatus {
+  ON_TIME
+  LATE
+}
+
 model User {
   id            String          @id @default(uuid())
   email         String          @unique
@@ -74,6 +84,8 @@ model User {
   longitude     Float?
   madhab        Madhab          @default(SHAFI)
   language      String          @default("tr")
+  locationChangeCount Int         @default(0)
+  madhabChangeCount   Int         @default(0)
 
   // auth relations
   credentials   UserCredential?
@@ -258,26 +270,13 @@ model UserStreak {
 
 //////////////////////////////////////////////////////
 
-model Question {
-  id            String   @id @default(uuid())
-  guideId       String
-  question      String
-  options       String[]
-  correctAnswer String
-  difficulty    Int?
-  createdAt     DateTime @default(now())
-
-  @@index([guideId])
-  @@map("questions")
-}
-
-//////////////////////////////////////////////////////
-
 model PrayerQuestion {
   id           String       @id @default(uuid())
   prompt       String
   explanation  String?
+  scope        QuestionScope @default(PRAYER)
   prayerType   PrayerType?
+  guideId      String?
   difficulty   Int          @default(1)
   isActive     Boolean      @default(true)
   createdAt    DateTime     @default(now())
@@ -287,6 +286,7 @@ model PrayerQuestion {
 
   @@index([prayerType, isActive])
   @@index([isActive])
+  @@index([scope, guideId, isActive])
   @@map("prayer_questions")
 }
 
@@ -301,6 +301,7 @@ model PrayerQuestionOption {
   createdAt   DateTime @default(now())
   question    PrayerQuestion @relation(fields: [questionId], references: [id], onDelete: Cascade)
 
+  @@unique([questionId, orderIndex])
   @@index([questionId])
   @@map("prayer_question_options")
 }
@@ -316,6 +317,7 @@ model PrayerQuizSubmission {
   questionIds         String[]
   windowStartsAt      DateTime
   windowEndsAt        DateTime
+  markWindowEndsAt    DateTime
   expiresAt           DateTime
   status              PrayerQuizStatus @default(PENDING)
   attemptCount        Int              @default(0)
@@ -362,7 +364,9 @@ model PrayerCompletion {
   prayerDate          DateTime        @db.Date
   completedAt         DateTime        @default(now())
   timezone            String
+  status              PrayerCompletionStatus @default(ON_TIME)
   xpAwarded           Int
+  xpBeforePenalty     Int             @default(0)
   isFirstOfDay        Boolean         @default(false)
   streakContributed   Boolean         @default(false)
   streakFreezeApplied Boolean         @default(false)
@@ -373,6 +377,7 @@ model PrayerCompletion {
   @@unique([userId, prayerType, prayerDate])
   @@index([userId, prayerDate])
   @@index([userId, completedAt])
+  @@index([userId, status])
   @@map("prayer_completions")
 }
 
@@ -389,6 +394,8 @@ model UserPrayerStats {
   totalTarawih    Int      @default(0)
   totalEidFitr    Int      @default(0)
   totalEidAdha    Int      @default(0)
+  totalOnTime     Int      @default(0)
+  totalLate       Int      @default(0)
   lastCompletedAt DateTime?
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
