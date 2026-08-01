@@ -40,6 +40,6 @@ export class MaghribStrategy extends GuideStrategy {
       totalRakats,
       sunnahAfter: 2,
       steps,
-    } as GuideResponseDto;
+    };
   }
 }

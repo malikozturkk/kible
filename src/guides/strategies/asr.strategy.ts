@@ -41,6 +41,6 @@ export class AsrStrategy extends GuideStrategy {
       sunnahBefore: 0,
       sunnahAfter: 0,
       steps,
-    } as GuideResponseDto;
+    };
   }
 }

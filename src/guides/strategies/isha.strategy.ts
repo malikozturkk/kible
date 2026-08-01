@@ -41,6 +41,6 @@ export class IshaStrategy extends GuideStrategy {
       sunnahBefore: 0,
       sunnahAfter: 2,
       steps,
-    } as GuideResponseDto;
+    };
   }
 }

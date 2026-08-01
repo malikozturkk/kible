@@ -90,6 +90,6 @@ export class GhuslStrategy extends GuideStrategy {
       title: 'Gusül Abdesti',
       totalSteps: steps.length,
       steps,
-    } as GuideResponseDto;
+    };
   }
 }

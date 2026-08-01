@@ -41,6 +41,6 @@ export class DhuhrStrategy extends GuideStrategy {
       sunnahBefore: 4,
       sunnahAfter: 2,
       steps,
-    } as GuideResponseDto;
+    };
   }
 }

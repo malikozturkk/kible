@@ -49,6 +49,6 @@ export class JumuahStrategy extends GuideStrategy {
       totalSteps: steps.length,
       totalRakats,
       steps,
-    } as GuideResponseDto;
+    };
   }
 }

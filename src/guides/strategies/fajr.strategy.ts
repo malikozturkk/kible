@@ -39,6 +39,6 @@ export class FajrStrategy extends GuideStrategy {
       totalRakats,
       sunnahBefore: 2,
       steps,
-    } as GuideResponseDto;
+    };
   }
 }

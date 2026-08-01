@@ -122,6 +122,6 @@ export class WuduStrategy extends GuideStrategy {
       title: 'Abdest',
       totalSteps: steps.length,
       steps,
-    } as GuideResponseDto;
+    };
   }
 }
