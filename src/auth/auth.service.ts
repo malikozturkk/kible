@@ -18,6 +18,7 @@ import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { AuthResponseDto } from './dto/auth-response.dto';
 import { AVATAR_COLOR_KEYS, type AvatarColorKey } from './constants/avatar.constants';
+import { MAX_LOCATION_CHANGES, MAX_MADHAB_CHANGES } from './constants/profile.constants';
 import { AvatarColorsDto } from './dto/avatar-colors.dto';
 import { resolveAvatarColors, resolveAvatarCustomizationFromDb } from './utils/avatar-config.util';
 import { toAuthUser, USER_RESPONSE_SELECT } from './utils/user-response.util';
@@ -232,20 +233,22 @@ export class AuthService {
       id: true,
       email: true,
       updatedAt: true,
+      locationChangeCount: true,
+      madhabChangeCount: true,
     };
 
     return isOwner ? { ...base, ...ownerOnly } : base;
   }
 
   async getProfileByUsername(username: string, viewerId: string) {
-    const target = await this.prisma.user
-      .findUniqueOrThrow({
-        where: { username },
-        select: { id: true },
-      })
-      .catch(() => {
-        throw new NotFoundException('USER_NOT_FOUND');
-      });
+    const target = await this.prisma.user.findUnique({
+      where: { username },
+      select: { id: true },
+    });
+
+    if (!target) {
+      throw new NotFoundException('USER_NOT_FOUND');
+    }
 
     const isOwner = viewerId === target.id;
 
@@ -337,8 +340,58 @@ export class AuthService {
     userId: string,
     updateProfileDto: UpdateProfileDto,
   ): Promise<AuthResponseDto['user']> {
-    const { username, avatar, gender, avatarColors, currentPassword, newPassword, language } =
-      updateProfileDto;
+    const {
+      username,
+      avatar,
+      gender,
+      avatarColors,
+      currentPassword,
+      newPassword,
+      language,
+      country,
+      city,
+      latitude,
+      longitude,
+      madhab,
+    } = updateProfileDto;
+
+    const locationParts = [country, city, latitude, longitude];
+    const providedLocationParts = locationParts.filter((v) => v !== undefined).length;
+    if (providedLocationParts > 0 && providedLocationParts < locationParts.length) {
+      throw new BadRequestException('INCOMPLETE_LOCATION_UPDATE');
+    }
+
+    const current = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        country: true,
+        city: true,
+        latitude: true,
+        longitude: true,
+        madhab: true,
+        locationChangeCount: true,
+        madhabChangeCount: true,
+      },
+    });
+    if (!current) {
+      throw new UnauthorizedException('USER_NOT_FOUND');
+    }
+
+    const locationChanged =
+      providedLocationParts === locationParts.length &&
+      (country !== current.country ||
+        city !== current.city ||
+        latitude !== current.latitude ||
+        longitude !== current.longitude);
+    if (locationChanged && current.locationChangeCount >= MAX_LOCATION_CHANGES) {
+      throw new ConflictException('LOCATION_CHANGE_LIMIT_REACHED');
+    }
+
+    const madhabChanged = madhab !== undefined && madhab !== current.madhab;
+    if (madhabChanged && current.madhabChangeCount >= MAX_MADHAB_CHANGES) {
+      throw new ConflictException('MADHAB_CHANGE_LIMIT_REACHED');
+    }
+
     if (username) {
       const existingUser = await this.prisma.user.findFirst({
         where: {
@@ -387,6 +440,14 @@ export class AuthService {
         ...(username && { username }),
         ...(avatar !== undefined && { avatar }),
         ...(language !== undefined && { language }),
+        ...(locationChanged && {
+          country,
+          city,
+          latitude,
+          longitude,
+          locationChangeCount: { increment: 1 },
+        }),
+        ...(madhabChanged && { madhab, madhabChangeCount: { increment: 1 } }),
       },
       select: {
         id: true,
@@ -397,6 +458,8 @@ export class AuthService {
         city: true,
         madhab: true,
         language: true,
+        locationChangeCount: true,
+        madhabChangeCount: true,
       },
     });
 

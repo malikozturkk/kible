@@ -6,7 +6,11 @@ import { PrayerTimeFactory } from '../../worship/factories/prayer-time.factory';
 import { BusinessException } from '../../common/exceptions/business.exception';
 import { LocalDate } from '../../common/utils/local-date';
 import { PrayerSlot, PrayerScheduleParams, UserPrayerConfig } from '../types/gamification.types';
-import { buildPrayerSlots, isWithinWindow } from '../helpers/prayer-schedule.helper';
+import {
+  buildPrayerSlots,
+  isWithinMarkWindow,
+  isWithinWindow,
+} from '../helpers/prayer-schedule.helper';
 import { toHijri, isRamadan, isEidFitr, isEidAdha, isFriday } from '../helpers/hijri.helper';
 import { DailyPrayersResponseDto, PrayerCardDto } from '../dto/daily-prayers.dto';
 import { resolveTimezone } from '../../common/utils/timezone.util';
@@ -47,7 +51,7 @@ export class PrayerScheduleService {
     isRamadan: boolean;
     isEidDay: boolean;
   } {
-    const { latitude, longitude, date, timezone } = params;
+    const { latitude, longitude, date, timezone, madhab } = params;
 
     const zonedDate = DateTime.fromISO(date, { zone: timezone });
     if (!zonedDate.isValid) {
@@ -58,17 +62,17 @@ export class PrayerScheduleService {
       latitude,
       longitude,
       zonedDate.toJSDate(),
-      { madhab: 'Shafi' },
+      { madhab },
     );
 
     const tomorrowBuilt = this.prayerTimeFactory.buildPrayerTimesWithMeta(
       latitude,
       longitude,
       zonedDate.plus({ days: 1 }).toJSDate(),
-      { madhab: 'Shafi' },
+      { madhab },
     );
 
-    const hijri = toHijri(zonedDate.startOf('day').toJSDate());
+    const hijri = toHijri(zonedDate);
 
     const slots = buildPrayerSlots({
       todayPrayerTimes: built.prayerTimes,
@@ -139,7 +143,7 @@ export class PrayerScheduleService {
     const cards: PrayerCardDto[] = slots.map((slot) => {
       const completion = completionByType.get(slot.type);
       const isCompleted = Boolean(completion);
-      const inWindow = isWithinWindow(slot, now);
+      const canStillMark = isWithinMarkWindow(slot, now);
       const pending = pendingQuizByType.get(slot.type);
       const isLocked = lockedByType.has(slot.type);
 
@@ -150,9 +154,13 @@ export class PrayerScheduleService {
         scheduledAt: slot.scheduledAt.toISO()!,
         windowStartsAt: slot.windowStartsAt.toISO()!,
         windowEndsAt: slot.windowEndsAt.toISO()!,
+        markWindowEndsAt: slot.markWindowEndsAt.toISO()!,
         xpReward: slot.xpReward,
+        lateXpReward: slot.lateXpReward,
         isCompleted,
-        canMarkAsCompleted: !isCompleted && !isLocked && inWindow,
+        canMarkAsCompleted: !isCompleted && !isLocked && canStillMark,
+        isLateWindow: !isCompleted && canStillMark && !isWithinWindow(slot, now),
+        completionStatus: completion?.status ?? null,
         completedAt: completion?.completedAt?.toISOString() ?? null,
         streakContribution: completion?.streakContributed ?? false,
         pendingQuizId: pending?.id ?? null,

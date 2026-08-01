@@ -1,10 +1,12 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { LevelCalculator } from '../../gamification/domain/level-calculator';
+import { LocalDate } from '../../common/utils/local-date';
 import { resolveAvatarCustomizationFromDb } from '../../auth/utils/avatar-config.util';
 import {
   PrayerBreakdownDto,
   PublicStatsResponseDto,
+  PunctualityStatsDto,
   SelfStatsResponseDto,
 } from '../dto/user-stats.dto';
 
@@ -66,11 +68,14 @@ export class UserStatsService {
         current: streakRow?.currentStreak ?? 0,
         longest: streakRow?.longestStreak ?? 0,
         freezeCount: streakRow?.streakFreezeCount ?? 0,
-        lastActiveDate: streakRow?.lastActiveDate?.toISOString() ?? null,
+        lastActiveDate: streakRow?.lastActiveDate
+          ? LocalDate.fromPersisted(streakRow.lastActiveDate).toISO()
+          : null,
       },
       prayers: {
         totalCompleted: prayerStats?.totalCompleted ?? 0,
         breakdown: this.buildBreakdown(prayerStats),
+        punctuality: this.buildPunctuality(prayerStats),
         lastCompletedAt: prayerStats?.lastCompletedAt?.toISOString() ?? null,
         quiz: {
           totalAttempts,
@@ -124,6 +129,7 @@ export class UserStatsService {
       prayers: {
         totalCompleted: prayerStats?.totalCompleted ?? 0,
         breakdown: this.buildBreakdown(prayerStats),
+        punctuality: this.buildPunctuality(prayerStats),
       },
       social: { followerCount, followingCount },
       isSelf: target.id === viewerId,
@@ -153,6 +159,19 @@ export class UserStatsService {
       tarawih: stats?.totalTarawih ?? 0,
       eidFitr: stats?.totalEidFitr ?? 0,
       eidAdha: stats?.totalEidAdha ?? 0,
+    };
+  }
+
+  private buildPunctuality(
+    stats: { totalOnTime: number; totalLate: number } | null,
+  ): PunctualityStatsDto {
+    const onTime = stats?.totalOnTime ?? 0;
+    const late = stats?.totalLate ?? 0;
+    const total = onTime + late;
+    return {
+      onTime,
+      late,
+      onTimePercent: total === 0 ? 0 : Math.round((onTime / total) * 100),
     };
   }
 

@@ -1,5 +1,5 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
-import { Question } from '@prisma/client';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { QuestionScope } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { RandomQuestionPublicDto } from './dto/random-question.dto';
 import { GuideCheckQuestionResponseDto } from './dto/guide-check-question.dto';
@@ -10,45 +10,57 @@ const RANDOM_QUESTION_SHOW_PROBABILITY = 0.8;
 export class QuestionsService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async pickRandomForGuide(guideId: string): Promise<Question | null> {
-    const rows = await this.prisma.question.findMany({
-      where: { guideId },
-    });
-    if (rows.length === 0) {
-      return null;
-    }
-    const index = Math.floor(Math.random() * rows.length);
-    return rows[index] ?? null;
-  }
-
   async tryPickRandomQuestion(guideId: string): Promise<RandomQuestionPublicDto | null> {
     if (Math.random() > RANDOM_QUESTION_SHOW_PROBABILITY) {
       return null;
     }
-    const dbQuestion = await this.pickRandomForGuide(guideId);
-    if (!dbQuestion) {
+
+    const rows = await this.prisma.prayerQuestion.findMany({
+      where: { scope: QuestionScope.GUIDE, guideId, isActive: true },
+      select: {
+        id: true,
+        prompt: true,
+        options: {
+          select: { id: true, text: true },
+          orderBy: { orderIndex: 'asc' },
+        },
+      },
+    });
+
+    const picked = rows[Math.floor(Math.random() * rows.length)];
+    if (!picked) {
       return null;
     }
+
     return {
-      id: dbQuestion.id,
-      question: dbQuestion.question,
-      options: dbQuestion.options,
+      id: picked.id,
+      question: picked.prompt,
+      options: picked.options.map((o) => ({ id: o.id, text: o.text })),
     };
   }
 
   async guideCheckAnswer(
     questionId: string,
-    answer: string,
+    optionId: string,
   ): Promise<GuideCheckQuestionResponseDto> {
-    const row = await this.prisma.question.findUnique({
-      where: { id: questionId },
-      select: { correctAnswer: true },
+    const question = await this.prisma.prayerQuestion.findFirst({
+      where: { id: questionId, scope: QuestionScope.GUIDE },
+      select: { options: { select: { id: true, isCorrect: true } } },
     });
-    if (!row) {
+    if (!question) {
       throw new NotFoundException('QUESTION_NOT_FOUND');
     }
-    const normalized = (s: string) => s.trim().toLocaleLowerCase('tr-TR');
-    const isCorrect = normalized(answer) === normalized(row.correctAnswer);
-    return { isCorrect, correctAnswer: row.correctAnswer };
+
+    const selected = question.options.find((o) => o.id === optionId);
+    if (!selected) {
+      throw new BadRequestException('QUIZ_OPTION_INVALID');
+    }
+
+    const correct = question.options.find((o) => o.isCorrect);
+    if (!correct) {
+      throw new NotFoundException('QUESTION_HAS_NO_CORRECT_OPTION');
+    }
+
+    return { isCorrect: selected.isCorrect, correctOptionId: correct.id };
   }
 }

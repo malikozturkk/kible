@@ -6,6 +6,7 @@ import {
   PrayerQuizQuestionStatus,
   PrayerQuizStatus,
   PrayerType,
+  QuestionScope,
 } from '@prisma/client';
 import { DateTime } from 'luxon';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -18,7 +19,7 @@ import {
   PRAYER_QUIZ_QUESTION_TIME_LIMIT_GRACE_SECONDS,
   PRAYER_QUIZ_QUESTION_TIME_LIMIT_SECONDS,
 } from '../constants/prayer.constants';
-import { isWithinWindow } from '../helpers/prayer-schedule.helper';
+import { isWithinMarkWindow } from '../helpers/prayer-schedule.helper';
 import { PrayerScheduleService } from './prayer-schedule.service';
 import {
   AnswerPrayerQuestionResponseDto,
@@ -96,6 +97,7 @@ export class PrayerQuizService {
     const pool: Array<{ id: string }> = await this.prisma.prayerQuestion.findMany({
       where: {
         isActive: true,
+        scope: QuestionScope.PRAYER,
         OR: [{ prayerType: null }, { prayerType }],
       },
       select: { id: true },
@@ -109,7 +111,7 @@ export class PrayerQuizService {
       pool.map((p) => p.id),
       PRAYER_QUIZ_QUESTION_COUNT,
     );
-    const expiresAt = slot.windowEndsAt
+    const expiresAt = slot.markWindowEndsAt
       .plus({ minutes: PRAYER_QUIZ_EXPIRY_GRACE_MINUTES })
       .toJSDate();
 
@@ -122,6 +124,7 @@ export class PrayerQuizService {
         questionIds: pickedIds,
         windowStartsAt: slot.windowStartsAt.toJSDate(),
         windowEndsAt: slot.windowEndsAt.toJSDate(),
+        markWindowEndsAt: slot.markWindowEndsAt.toJSDate(),
         expiresAt,
         status: PrayerQuizStatus.PENDING,
         attemptCount: 0,
@@ -364,7 +367,12 @@ export class PrayerQuizService {
   }
 
   private async assertQuizUsable(
-    submission: { status: PrayerQuizStatus; expiresAt: Date; windowStartsAt: Date; windowEndsAt: Date },
+    submission: {
+      status: PrayerQuizStatus;
+      expiresAt: Date;
+      windowStartsAt: Date;
+      markWindowEndsAt: Date;
+    },
     now: DateTime,
   ): Promise<void> {
     if (submission.status !== PrayerQuizStatus.PENDING) {
@@ -375,7 +383,7 @@ export class PrayerQuizService {
     }
     if (
       now.toJSDate() < submission.windowStartsAt ||
-      now.toJSDate() >= submission.windowEndsAt
+      now.toJSDate() >= submission.markWindowEndsAt
     ) {
       throw new BusinessException('PRAYER_WINDOW_CLOSED', HttpStatus.CONFLICT);
     }
@@ -446,7 +454,7 @@ export class PrayerQuizService {
   }
 
   private assertWindowOpen(slot: PrayerSlot, now: DateTime): void {
-    if (!isWithinWindow(slot, now)) {
+    if (!isWithinMarkWindow(slot, now)) {
       if (now < slot.windowStartsAt) {
         throw new BusinessException('PRAYER_WINDOW_NOT_OPEN_YET', HttpStatus.CONFLICT);
       }

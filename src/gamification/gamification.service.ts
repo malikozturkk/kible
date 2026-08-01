@@ -14,7 +14,9 @@ import {
 import { PrayerScheduleService } from './services/prayer-schedule.service';
 import { PrayerQuizService } from './services/prayer-quiz.service';
 import { PrayerCompletionService } from './services/prayer-completion.service';
+import { PrayerHistoryService } from './services/prayer-history.service';
 import { GamificationActionService } from './services/gamification-action.service';
+import { PrayerHistoryResponseDto } from './dto/prayer-history.dto';
 import { PrayerScheduleParams, PrayerViewRequest } from './types/gamification.types';
 import { PrayerType } from '@prisma/client';
 
@@ -25,12 +27,17 @@ export class GamificationService {
     private readonly prayerScheduleService: PrayerScheduleService,
     private readonly prayerQuizService: PrayerQuizService,
     private readonly prayerCompletionService: PrayerCompletionService,
+    private readonly prayerHistoryService: PrayerHistoryService,
     private readonly actionService: GamificationActionService,
   ) {}
 
   async dailyPrayers(request: PrayerViewRequest): Promise<DailyPrayersResponseDto> {
     const params = await this.toScheduleParams(request.userId, request.date);
     return this.prayerScheduleService.getDailyView(params);
+  }
+
+  async prayerHistory(userId: string, from: string, to: string): Promise<PrayerHistoryResponseDto> {
+    return this.prayerHistoryService.getHistory(userId, from, to);
   }
 
   async prayerQuestions(

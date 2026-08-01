@@ -1,5 +1,5 @@
 import { HttpStatus, Injectable, Logger } from '@nestjs/common';
-import { Prisma, PrayerType } from '@prisma/client';
+import { Prisma, PrayerCompletionStatus, PrayerType } from '@prisma/client';
 import { DateTime } from 'luxon';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BusinessException } from '../../common/exceptions/business.exception';
@@ -9,7 +9,7 @@ import { XpService } from './xp.service';
 import { PrayerScheduleService } from './prayer-schedule.service';
 import { PrayerQuizService } from './prayer-quiz.service';
 import { PRAYER_FIRST_OF_DAY_BONUS_XP } from '../constants/prayer.constants';
-import { isWithinWindow } from '../helpers/prayer-schedule.helper';
+import { isWithinMarkWindow, resolveCompletionStatus } from '../helpers/prayer-schedule.helper';
 import { PrayerScheduleParams } from '../types/gamification.types';
 import { PrayerCompletionResultDto } from '../dto/gamification-action.dto';
 
@@ -44,9 +44,12 @@ export class PrayerCompletionService {
     };
     const { slot, zonedDate } = this.scheduleService.resolveSlot(params, prayerType);
 
-    if (!isWithinWindow(slot, now)) {
+    if (!isWithinMarkWindow(slot, now)) {
       throw new BusinessException('PRAYER_WINDOW_CLOSED', HttpStatus.CONFLICT);
     }
+
+    const completionStatus = resolveCompletionStatus(slot, now);
+    const isLate = completionStatus === PrayerCompletionStatus.LATE;
 
     const localDate = LocalDate.fromInstant(zonedDate, timezone);
     const prayerDate = localDate.toUtcMidnight();
@@ -69,8 +72,9 @@ export class PrayerCompletionService {
           where: { userId, prayerDate },
         });
         const isFirstOfDay = existingCount === 0;
-        const baseXp = slot.xpReward;
-        const xpAwarded = isFirstOfDay ? baseXp + PRAYER_FIRST_OF_DAY_BONUS_XP : baseXp;
+        const dayBonus = isFirstOfDay ? PRAYER_FIRST_OF_DAY_BONUS_XP : 0;
+        const xpBeforePenalty = slot.xpReward + dayBonus;
+        const xpAwarded = (isLate ? slot.lateXpReward : slot.xpReward) + dayBonus;
 
         const completion = await tx.prayerCompletion.create({
           data: {
@@ -79,7 +83,9 @@ export class PrayerCompletionService {
             prayerDate,
             completedAt: now.toJSDate(),
             timezone,
+            status: completionStatus,
             xpAwarded,
+            xpBeforePenalty,
             isFirstOfDay,
             streakContributed: false,
             streakFreezeApplied: false,
@@ -111,7 +117,7 @@ export class PrayerCompletionService {
           longestStreak = current?.longestStreak ?? 0;
         }
 
-        await this.updateStats(tx, userId, prayerType, now);
+        await this.updateStats(tx, userId, prayerType, completionStatus, now);
         const xpResult = await this.xpService.award(tx, userId, xpAwarded);
         await this.quizService.markPassed(tx, quizId, completion.id);
 
@@ -120,7 +126,9 @@ export class PrayerCompletionService {
           prayerType: completion.prayerType,
           prayerDate: localDate.toISO(),
           completedAt: completion.completedAt.toISOString(),
+          status: completionStatus,
           xpAwarded,
+          xpBeforePenalty,
           xpAfter: xpResult.xp,
           level: xpResult.level,
           leveledUp: xpResult.leveledUp,
@@ -142,15 +150,19 @@ export class PrayerCompletionService {
     tx: Prisma.TransactionClient,
     userId: string,
     prayerType: PrayerType,
+    status: PrayerCompletionStatus,
     now: DateTime,
   ): Promise<void> {
     const typeField = this.statsFieldFor(prayerType);
+    const onTime = status === PrayerCompletionStatus.ON_TIME ? 1 : 0;
 
     await tx.userPrayerStats.upsert({
       where: { userId },
       create: {
         userId,
         totalCompleted: 1,
+        totalOnTime: onTime,
+        totalLate: 1 - onTime,
         totalFajr: prayerType === 'FAJR' ? 1 : 0,
         totalDhuhr: prayerType === 'DHUHR' ? 1 : 0,
         totalAsr: prayerType === 'ASR' ? 1 : 0,
@@ -164,6 +176,8 @@ export class PrayerCompletionService {
       },
       update: {
         totalCompleted: { increment: 1 },
+        totalOnTime: { increment: onTime },
+        totalLate: { increment: 1 - onTime },
         [typeField]: { increment: 1 },
         lastCompletedAt: now.toJSDate(),
       },

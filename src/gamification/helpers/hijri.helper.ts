@@ -6,13 +6,14 @@ export interface HijriDate {
   day: number;
 }
 
-export function toHijri(date: Date): HijriDate {
+export function toHijri(local: DateTime): HijriDate {
+  const anchor = new Date(Date.UTC(local.year, local.month - 1, local.day, 12));
   const parts = new Intl.DateTimeFormat('en-u-ca-islamic-umalqura', {
     day: 'numeric',
     month: 'numeric',
     year: 'numeric',
     timeZone: 'UTC',
-  }).formatToParts(date);
+  }).formatToParts(anchor);
 
   return {
     year: parseInt(parts.find((p) => p.type === 'year')!.value, 10),

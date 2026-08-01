@@ -17,6 +17,7 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import type { AuthenticatedRequest } from '../auth/strategies/jwt.strategy';
 import { GamificationService } from './gamification.service';
 import { DailyPrayersQueryDto, DailyPrayersResponseDto } from './dto/daily-prayers.dto';
+import { PrayerHistoryQueryDto, PrayerHistoryResponseDto } from './dto/prayer-history.dto';
 import {
   AnswerPrayerQuestionBodyDto,
   AnswerPrayerQuestionResponseDto,
@@ -42,6 +43,14 @@ export class GamificationController {
       userId: req.user.id,
       date: query.date,
     });
+  }
+
+  @Get('prayer-history')
+  async prayerHistory(
+    @Request() req: AuthenticatedRequest,
+    @Query() query: PrayerHistoryQueryDto,
+  ): Promise<PrayerHistoryResponseDto> {
+    return this.gamificationService.prayerHistory(req.user.id, query.from, query.to);
   }
 
   @Get('prayer-questions/:prayerId')

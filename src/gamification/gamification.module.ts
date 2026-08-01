@@ -8,6 +8,7 @@ import { XpService } from './services/xp.service';
 import { PrayerScheduleService } from './services/prayer-schedule.service';
 import { PrayerQuizService } from './services/prayer-quiz.service';
 import { PrayerCompletionService } from './services/prayer-completion.service';
+import { PrayerHistoryService } from './services/prayer-history.service';
 import { GamificationActionService } from './services/gamification-action.service';
 
 @Module({
@@ -20,6 +21,7 @@ import { GamificationActionService } from './services/gamification-action.servic
     PrayerScheduleService,
     PrayerQuizService,
     PrayerCompletionService,
+    PrayerHistoryService,
     GamificationActionService,
   ],
   exports: [
@@ -29,6 +31,7 @@ import { GamificationActionService } from './services/gamification-action.servic
     PrayerScheduleService,
     PrayerQuizService,
     PrayerCompletionService,
+    PrayerHistoryService,
   ],
 })
 export class GamificationModule {}

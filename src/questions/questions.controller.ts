@@ -11,6 +11,6 @@ export class QuestionsController {
 
   @Post('guide/check')
   async check(@Body() body: GuideCheckQuestionBodyDto): Promise<GuideCheckQuestionResponseDto> {
-    return this.questionsService.guideCheckAnswer(body.questionId, body.answer);
+    return this.questionsService.guideCheckAnswer(body.questionId, body.optionId);
   }
 }

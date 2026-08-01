@@ -1,24 +1,10 @@
 import { Injectable } from '@nestjs/common';
 import { DateTime } from 'luxon';
 import { FastingDTO, RamadanDTO } from '../types/prayer.types';
+import { toHijri } from '../../gamification/helpers/hijri.helper';
 
 @Injectable()
 export class FastingProgressService {
-  private toHijri(date: Date): { year: number; month: number; day: number } {
-    const parts = new Intl.DateTimeFormat('en-u-ca-islamic-umalqura', {
-      day: 'numeric',
-      month: 'numeric',
-      year: 'numeric',
-      timeZone: 'UTC',
-    }).formatToParts(date);
-
-    return {
-      year: parseInt(parts.find((p) => p.type === 'year')!.value, 10),
-      month: parseInt(parts.find((p) => p.type === 'month')!.value, 10),
-      day: parseInt(parts.find((p) => p.type === 'day')!.value, 10),
-    };
-  }
-
   private hijriMonthLength(year: number, month: number): number {
     if (month % 2 === 1) return 30;
     if (month === 12) {
@@ -29,8 +15,7 @@ export class FastingProgressService {
   }
 
   calculate(fajr: DateTime, maghrib: DateTime, now: DateTime): FastingDTO {
-    const localMidnight = fajr.startOf('day').toJSDate();
-    const hijri = this.toHijri(localMidnight);
+    const hijri = toHijri(fajr);
     const isRamadan = hijri.month === 9;
 
     const fastingStart = fajr.toISO();

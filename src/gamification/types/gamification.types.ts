@@ -7,7 +7,9 @@ export interface PrayerSlot {
   scheduledAt: DateTime;
   windowStartsAt: DateTime;
   windowEndsAt: DateTime;
+  markWindowEndsAt: DateTime;
   xpReward: number;
+  lateXpReward: number;
   isObligatory: boolean;
 }
 

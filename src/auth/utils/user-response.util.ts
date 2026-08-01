@@ -11,6 +11,8 @@ export const USER_RESPONSE_SELECT = {
   city: true,
   madhab: true,
   language: true,
+  locationChangeCount: true,
+  madhabChangeCount: true,
   avatarConfig: {
     select: { colors: true, accessories: true, gender: true },
   },
@@ -31,6 +33,8 @@ type AuthUserRow = {
   city: string | null;
   madhab: Madhab;
   language: string;
+  locationChangeCount?: number;
+  madhabChangeCount?: number;
   avatarConfig?: AvatarConfigRow;
 };
 
@@ -44,6 +48,8 @@ export function toAuthUser(row: AuthUserRow): AuthResponseUserDto {
     city: row.city,
     madhab: row.madhab,
     language: row.language,
+    locationChangeCount: row.locationChangeCount ?? 0,
+    madhabChangeCount: row.madhabChangeCount ?? 0,
     avatarCustomization: resolveAvatarCustomizationFromDb(row.avatarConfig),
   };
 }
