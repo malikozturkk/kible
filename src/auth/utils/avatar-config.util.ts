@@ -56,10 +56,7 @@ export function resolveAvatarColors(raw: unknown): Record<AvatarColorKey, string
 }
 
 export function resolveAvatarCustomizationFromDb(
-  row:
-    | { colors: unknown; accessories: unknown; gender?: unknown }
-    | null
-    | undefined,
+  row: { colors: unknown; accessories: unknown; gender?: unknown } | null | undefined,
 ): AvatarCustomizationPayload {
   if (!row) {
     return getDefaultAvatarCustomization();

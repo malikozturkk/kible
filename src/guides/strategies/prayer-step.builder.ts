@@ -23,7 +23,7 @@ export class PrayerStepBuilder {
       shortDescription: 'Namaza Allahu Ekber diyerek başlayın',
       description: 'Ayakta Allahu Ekber diyerek namaza başlayın (niyet kalpten yapılır).',
       tips: ['Niyet kalptendir; dil ile tekbir sünnettir'],
-    } as StepDto;
+    };
   }
 
   static buildQiyamWithRecitation(
@@ -44,7 +44,7 @@ export class PrayerStepBuilder {
       isFard,
       rekat,
       tips: ['Sükun içinde okunmalı', 'Anlamına dikkat edilmeye çalışılmalı'],
-    } as StepDto;
+    };
   }
 
   static buildRukuh(index: number, totalSteps: number, rekat: number): StepDto {
@@ -58,7 +58,7 @@ export class PrayerStepBuilder {
         'Sırt düz, eller dizlere gelecek şekilde eğilin ve üç kere Subhana Rabbiyal Azeem deyin.',
       rekat,
       tips: ['Sırtın düz olması önemli', 'Hareket sakin olmalı'],
-    } as StepDto;
+    };
   }
 
   static buildIftiraj(index: number, totalSteps: number, rekat: number): StepDto {
@@ -70,7 +70,7 @@ export class PrayerStepBuilder {
       shortDescription: 'Rükûdan kalkıp kısa bir duruş',
       description: 'Rükudan kalkıp ayağa kalkın, kısa süre durun.',
       rekat,
-    } as StepDto;
+    };
   }
 
   static buildSujud(index: number, totalSteps: number, rekat: number): StepDto {
@@ -83,7 +83,7 @@ export class PrayerStepBuilder {
       description: 'İki secde yapın; her birinde Subhana Rabbiyal A’la deyin.',
       rekat,
       tips: ['Alın ve burun yere temas etmeli', 'Secdede dil ile zikir yapılabilir'],
-    } as StepDto;
+    };
   }
 
   static buildTashahhudAndSalam(index: number, totalSteps: number): StepDto {
@@ -95,6 +95,6 @@ export class PrayerStepBuilder {
       shortDescription: 'Et-Tahiyyat okuyun ve selam verin',
       description: 'Oturduktan sonra Et-Tahiyyat okuyun ve namazı selam ile bitirin.',
       tips: ['Selam sağa ve sola verilir'],
-    } as StepDto;
+    };
   }
 }

@@ -14,4 +14,3 @@ export class GuidesController {
     return this.guidesService.getGuide(type);
   }
 }
-

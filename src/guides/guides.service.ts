@@ -48,8 +48,7 @@ export class GuidesService {
     const randomQuestion = await this.questionsService.tryPickRandomQuestion(guide.id);
     if (randomQuestion && guide.steps.length > 0) {
       const stepNumber = Math.floor(Math.random() * guide.steps.length) + 1;
-      const step =
-        guide.steps.find((s) => s.step === stepNumber) ?? guide.steps[stepNumber - 1];
+      const step = guide.steps.find((s) => s.step === stepNumber) ?? guide.steps[stepNumber - 1];
       if (step) {
         step.randomQuestion = randomQuestion;
       }

@@ -40,7 +40,7 @@ export class ConsentService implements OnModuleInit {
       throw new Error('CONSENT_VERSIONS_NOT_CONFIGURED');
     }
 
-    const resolved: ConsentVersionsMap = { ...fromConfig } as ConsentVersionsMap;
+    const resolved: ConsentVersionsMap = { ...fromConfig };
     for (const type of CONSENT_TYPES) {
       const envKey = `CONSENT_VERSION_${type}`;
       const override = this.config.get<string>(envKey);
@@ -88,7 +88,7 @@ export class ConsentService implements OnModuleInit {
           userId,
           type,
           version,
-        } as unknown as Prisma.UserConsentUncheckedCreateInput,
+        },
       });
     } catch (err) {
       if (err && err.code === 'P2002') {
