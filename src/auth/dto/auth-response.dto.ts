@@ -1,5 +1,5 @@
 import { Type } from 'class-transformer';
-import { IsString, ValidateNested, IsOptional, IsObject, IsIn } from 'class-validator';
+import { IsString, ValidateNested, IsOptional, IsObject, IsIn, IsInt } from 'class-validator';
 import { Madhab } from '@prisma/client';
 import { GENDER_VALUES, type GenderValue } from '../constants/gender.constants';
 import { MADHAB_VALUES } from '../constants/madhab.constants';
@@ -16,6 +16,12 @@ export class AvatarCustomizationResponseDto {
 }
 
 export class AuthResponseUserDto {
+  @IsInt()
+  locationChangeCount: number;
+
+  @IsInt()
+  madhabChangeCount: number;
+
   @IsString()
   id: string;
 

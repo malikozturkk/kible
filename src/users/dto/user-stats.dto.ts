@@ -36,9 +36,16 @@ export interface SelfStreakStatsDto extends PublicStreakStatsDto {
   lastActiveDate: string | null;
 }
 
+export interface PunctualityStatsDto {
+  onTime: number;
+  late: number;
+  onTimePercent: number;
+}
+
 export interface PublicPrayerStatsDto {
   totalCompleted: number;
   breakdown: PrayerBreakdownDto;
+  punctuality: PunctualityStatsDto;
 }
 
 export interface SelfPrayerStatsDto extends PublicPrayerStatsDto {

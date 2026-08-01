@@ -1,4 +1,13 @@
-import { IsArray, IsString } from 'class-validator';
+import { Type } from 'class-transformer';
+import { IsArray, IsString, ValidateNested } from 'class-validator';
+
+export class RandomQuestionOptionDto {
+  @IsString()
+  id: string;
+
+  @IsString()
+  text: string;
+}
 
 export class RandomQuestionPublicDto {
   @IsString()
@@ -8,6 +17,7 @@ export class RandomQuestionPublicDto {
   question: string;
 
   @IsArray()
-  @IsString({ each: true })
-  options: string[];
+  @ValidateNested({ each: true })
+  @Type(() => RandomQuestionOptionDto)
+  options: RandomQuestionOptionDto[];
 }

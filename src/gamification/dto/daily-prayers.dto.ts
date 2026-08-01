@@ -9,7 +9,7 @@ import {
   Matches,
   ValidateNested,
 } from 'class-validator';
-import { PrayerCategory, PrayerType } from '@prisma/client';
+import { PrayerCategory, PrayerCompletionStatus, PrayerType } from '@prisma/client';
 
 export class DailyPrayersQueryDto {
   @IsString()
@@ -36,14 +36,27 @@ export class PrayerCardDto {
   @IsString()
   windowEndsAt: string;
 
+  @IsString()
+  markWindowEndsAt: string;
+
   @IsInt()
   xpReward: number;
+
+  @IsInt()
+  lateXpReward: number;
 
   @IsBoolean()
   isCompleted: boolean;
 
   @IsBoolean()
   canMarkAsCompleted: boolean;
+
+  @IsBoolean()
+  isLateWindow: boolean;
+
+  @IsOptional()
+  @IsEnum(PrayerCompletionStatus)
+  completionStatus: PrayerCompletionStatus | null;
 
   @IsOptional()
   @IsString()

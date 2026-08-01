@@ -53,4 +53,3 @@ export class StepDto {
   @Type(() => RandomQuestionPublicDto)
   randomQuestion?: RandomQuestionPublicDto | null;
 }
-

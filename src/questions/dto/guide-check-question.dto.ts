@@ -1,15 +1,14 @@
-import { IsString, MinLength } from 'class-validator';
+import { IsUUID } from 'class-validator';
 
 export class GuideCheckQuestionBodyDto {
-  @IsString()
-  @MinLength(1)
+  @IsUUID()
   questionId: string;
 
-  @IsString()
-  answer: string;
+  @IsUUID()
+  optionId: string;
 }
 
 export class GuideCheckQuestionResponseDto {
   isCorrect: boolean;
-  correctAnswer: string;
+  correctOptionId: string;
 }

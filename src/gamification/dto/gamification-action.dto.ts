@@ -8,7 +8,7 @@ import {
   MaxLength,
   ValidateNested,
 } from 'class-validator';
-import { PrayerType } from '@prisma/client';
+import { PrayerCompletionStatus, PrayerType } from '@prisma/client';
 import { GamificationActionType } from '../enums/gamification-action.enum';
 import { StreakFreezeUsageResultDto } from './streak-freeze-result.dto';
 
@@ -35,8 +35,14 @@ export class PrayerCompletionResultDto {
   @IsString()
   completedAt: string;
 
+  @IsEnum(PrayerCompletionStatus)
+  status: PrayerCompletionStatus;
+
   @IsInt()
   xpAwarded: number;
+
+  @IsInt()
+  xpBeforePenalty: number;
 
   @IsInt()
   xpAfter: number;
