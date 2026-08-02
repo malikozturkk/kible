@@ -12,17 +12,17 @@ export class UserXpResponseDto {
   level: number;
 
   @IsInt()
-  currentLevelXp: number; // Mevcut level içindeki XP
+  currentLevelXp: number;
 
   @IsInt()
-  xpToNextLevel: number; // Sonraki level için gereken XP
+  xpToNextLevel: number;
 
   @IsInt()
-  totalXpForNextLevel: number; // Sonraki level için gereken toplam XP
+  totalXpForNextLevel: number;
 
   @IsString()
   badgeKey: string;
 
   @IsInt()
-  progressPercent: number; // Sonraki level için % kaç doldu
+  progressPercent: number;
 }
