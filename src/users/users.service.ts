@@ -3,6 +3,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { SearchUsersDto } from './dto/search-users.dto';
 import { resolveAvatarCustomizationFromDb } from '../auth/utils/avatar-config.util';
 import { AVATAR_CONFIG_SELECT, SearchUserResult, SearchUsersResponse } from './types/users.types';
+import { SEARCH_MIN_SIMILARITY, TRIGRAM_SIZE } from './constants/search.constants';
 @Injectable()
 export class UsersService {
   constructor(private readonly prisma: PrismaService) {}
@@ -28,12 +29,15 @@ export class UsersService {
       take: 500,
     });
 
+    const isShortQuery = normalizedQuery.length < TRIGRAM_SIZE;
     const scored = candidates
       .map((user) => ({
         ...user,
-        similarity: this.trigramSimilarity(normalizedQuery, user.username.toLowerCase()),
+        similarity: isShortQuery
+          ? this.shortQuerySimilarity(normalizedQuery, user.username.toLowerCase())
+          : this.trigramSimilarity(normalizedQuery, user.username.toLowerCase()),
       }))
-      .filter((user) => user.similarity > 0.1);
+      .filter((user) => user.similarity >= SEARCH_MIN_SIMILARITY);
 
     if (scored.length === 0) {
       return { users: [], totalCount: 0, nextCursor: null };
@@ -132,11 +136,20 @@ export class UsersService {
     };
   }
 
+  private shortQuerySimilarity(query: string, username: string): number {
+    const index = username.indexOf(query);
+    if (index === -1) return 0;
+
+    const positionScore = index === 0 ? 1 : 0.6;
+    const lengthScore = query.length / username.length;
+    return SEARCH_MIN_SIMILARITY + (1 - SEARCH_MIN_SIMILARITY) * positionScore * lengthScore;
+  }
+
   private generateTrigrams(str: string): string[] {
-    if (str.length < 3) return [str];
+    if (str.length < TRIGRAM_SIZE) return [str];
     const trigrams: string[] = [];
-    for (let i = 0; i <= str.length - 3; i++) {
-      trigrams.push(str.substring(i, i + 3));
+    for (let i = 0; i <= str.length - TRIGRAM_SIZE; i++) {
+      trigrams.push(str.substring(i, i + TRIGRAM_SIZE));
     }
     return trigrams;
   }
@@ -153,7 +166,6 @@ export class UsersService {
       if (triB.has(t)) intersection++;
     }
 
-    const union = triA.size + triB.size - intersection;
-    return union === 0 ? 0 : intersection / union;
+    return intersection / Math.min(triA.size, triB.size);
   }
 }
