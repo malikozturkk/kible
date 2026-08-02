@@ -25,6 +25,7 @@ import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { ValidateResetTokenDto } from './dto/validate-reset-token.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import type { AuthenticatedRequest } from 'src/auth/strategies/jwt.strategy';
+import { UpdateProfileResponseDto } from './dto/update-profile-response.dto';
 import {
   THROTTLE_EMAIL_SEND,
   THROTTLE_LOGIN,
@@ -82,7 +83,7 @@ export class AuthController {
   async updateProfile(
     @Request() req: AuthenticatedRequest,
     @Body() updateProfileDto: UpdateProfileDto,
-  ): Promise<AuthResponseDto['user']> {
+  ): Promise<UpdateProfileResponseDto> {
     return this.authService.updateProfile(req.user.id, updateProfileDto);
   }
 

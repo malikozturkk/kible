@@ -151,7 +151,13 @@ export class PasswordResetService {
       await this.prisma.$transaction([
         this.prisma.userCredential.update({
           where: { userId: user.id },
-          data: { passwordHash: newHash, passwordUpdatedAt: new Date() },
+          data: {
+            passwordHash: newHash,
+            passwordUpdatedAt: new Date(),
+            tokenVersion: { increment: 1 },
+            failedLoginAttempts: 0,
+            lockedUntil: null,
+          },
         }),
         this.prisma.refreshToken.updateMany({
           where: { userId: user.id, isRevoked: false },

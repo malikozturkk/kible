@@ -7,6 +7,8 @@ import { PrismaService } from '../../prisma/prisma.service';
 export interface JwtPayload {
   sub: string;
   username: string;
+  tv?: number;
+  iat?: number;
 }
 
 export type AuthenticatedRequest = ExpressRequest & {
@@ -33,6 +35,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
         username: true,
         email: true,
         avatar: true,
+        credentials: { select: { tokenVersion: true } },
       },
     });
 
@@ -40,6 +43,12 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       throw new UnauthorizedException('USER_NOT_FOUND');
     }
 
-    return user;
+    const currentTokenVersion = user.credentials?.tokenVersion ?? 0;
+    if ((payload.tv ?? 0) !== currentTokenVersion) {
+      throw new UnauthorizedException('TOKEN_REVOKED_BY_PASSWORD_CHANGE');
+    }
+
+    const { credentials: _credentials, ...safeUser } = user;
+    return safeUser;
   }
 }

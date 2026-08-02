@@ -244,7 +244,11 @@ export class OtpService {
     userId: string,
     username: string,
   ): Promise<{ accessToken: string; refreshToken: string }> {
-    const payload = { sub: userId, username };
+    const credentials = await this.prisma.userCredential.findUnique({
+      where: { userId },
+      select: { tokenVersion: true },
+    });
+    const payload = { sub: userId, username, tv: credentials?.tokenVersion ?? 0 };
 
     const accessToken = this.jwtService.sign(payload, {
       expiresIn: this.JWT_EXPIRES_IN as StringValue,

@@ -189,6 +189,10 @@ export class AuthService {
     if (!storedToken || storedToken.isRevoked || storedToken.expiresAt < new Date()) {
       throw new UnauthorizedException('INVALID_OR_EXPIRED_REFRESH_TOKEN');
     }
+await this.prisma.refreshToken.update({
+      where: { id: storedToken.id },
+      data: { isRevoked: true },
+    });
 
     const tokens = await this.generateTokens(storedToken.user.id, storedToken.user.username);
     return {
@@ -347,7 +351,8 @@ export class AuthService {
   async updateProfile(
     userId: string,
     updateProfileDto: UpdateProfileDto,
-  ): Promise<AuthResponseDto['user']> {
+  ): Promise<UpdateProfileResponseDto> {
+    let passwordChanged = false;
     const {
       username,
       avatar,
@@ -369,9 +374,10 @@ export class AuthService {
       throw new BadRequestException('INCOMPLETE_LOCATION_UPDATE');
     }
 
-    const current = await this.prisma.user.findUnique({
+    const currentUser = await this.prisma.user.findUnique({
       where: { id: userId },
       select: {
+        username: true,
         country: true,
         city: true,
         latitude: true,
@@ -381,9 +387,10 @@ export class AuthService {
         madhabChangeCount: true,
       },
     });
-    if (!current) {
+    if (!currentUser) {
       throw new UnauthorizedException('USER_NOT_FOUND');
     }
+    const current = currentUser;
 
     const locationChanged =
       providedLocationParts === locationParts.length &&
@@ -434,12 +441,27 @@ export class AuthService {
         throw new UnauthorizedException('INVALID_CURRENT_PASSWORD');
       }
 
-      const hashedPassword = await bcrypt.hash(newPassword + this.PEPPER, 10);
+      const hashedPassword = await bcrypt.hash(newPassword + this.PEPPER, BCRYPT_COST);
 
-      await this.prisma.userCredential.update({
+      await this.prisma.$transaction(async (tx) => {
+        await tx.userCredential.update({
         where: { userId },
-        data: { passwordHash: hashedPassword },
+          data: {
+            passwordHash: hashedPassword,
+            passwordUpdatedAt: new Date(),
+            failedLoginAttempts: 0,
+            lockedUntil: null,
+            tokenVersion: { increment: 1 },
+          },
+        });
+
+        await tx.refreshToken.updateMany({
+          where: { userId, isRevoked: false },
+          data: { isRevoked: true },
       });
+      });
+
+      passwordChanged = true;
     }
 
     const user = await this.prisma.user.update({
@@ -500,9 +522,14 @@ export class AuthService {
       where: { userId },
     });
 
+    const rotatedTokens = passwordChanged
+      ? await this.generateTokens(user.id, user.username)
+      : undefined;
+
     return {
       ...user,
       avatarCustomization: resolveAvatarCustomizationFromDb(avatarRow),
+      ...(rotatedTokens && { tokens: rotatedTokens }),
     };
   }
 
@@ -521,9 +548,15 @@ export class AuthService {
     userId: string,
     username: string,
   ): Promise<{ accessToken: string; refreshToken: string }> {
+    const credentials = await this.prisma.userCredential.findUnique({
+      where: { userId },
+      select: { tokenVersion: true },
+    });
+
     const payload: JwtPayload = {
       sub: userId,
       username,
+      tv: credentials?.tokenVersion ?? 0,
     };
 
     const accessToken = this.jwtService.sign(payload, {
