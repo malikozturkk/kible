@@ -172,13 +172,13 @@ exist** in this repo — the script will fail until that config is added.
 ```
 prisma/
   schema.prisma               # single source of truth for the DB
-  migrations/                 # 5 migrations, oldest 20260420201800_consent
+  migrations/                 # 9 migrations, oldest 20260420201800_consent
   seed.ts                     # idempotent seed runner — `yarn prisma:seed`
   seeds/                      # seed data: prayer-questions/*.ts, guide-questions.ts
 src/
   main.ts                     # bootstrap: CORS, ValidationPipe, interceptor, filter, listen()
   app.module.ts               # composition root
-  common/                     # response envelope, exception filter, LocalDate, timezone util
+  common/                     # response envelope, exception filter, LocalDate, timezone util, throttler
   prisma/                     # @Global PrismaModule + PrismaService
   auth/                       # register/login/refresh/logout, profile, password reset, follow
   otp/                        # registration OTP; the user row is created here, not in auth
@@ -187,6 +187,7 @@ src/
   users/                      # user search, public/self stats
   worship/                    # prayer times, countdowns, fasting + day progress
   gamification/               # daily prayer slots, quiz, completion, XP, streak
+  leaderboard/                # XP / streak / prayer-count rankings (metric × scope × period)
   guides/                     # static step-by-step wudu/ghusl/prayer guides (strategy pattern)
   questions/                  # guide-quiz check (shares the question bank, scope = GUIDE)
   config/consent.config.ts    # fails fast if consent version env vars are missing
@@ -264,8 +265,12 @@ are warnings. Run `yarn lint` before finishing.
   `Shafi` (commit `823c539`), which put the two screens more than an hour apart for Hanafi users and
   closed Dhuhr's markable window at the Shafi Asr. Keep the two in sync — they must agree.
 - **A prayer is completed only by passing its quiz.** There is no "mark as prayed" endpoint. 3
-  questions, 25 s each (+2 s grace). One wrong or late answer fails the submission, locks the
-  remaining questions, and **locks the user out of that prayer for that date entirely** — no retry.
+  questions, 25 s each (+2 s grace). A **wrong** answer fails the submission, locks the remaining
+  questions, and locks the user out of that prayer for that date — no retry. A **lapsed timer** is
+  different: it records `EXPIRED`, spends one of `PRAYER_QUIZ_MAX_ATTEMPTS` (2) and lets the user
+  draw a fresh question set. Timers are client-side, so `PrayerQuizExpiryService` settles stale
+  submissions lazily — including from `GET /gamification/daily-prayers`, so the daily view never
+  offers a button that is guaranteed to 409.
 - **One question bank, two scopes.** `prayer_questions` holds both the prayer-quiz questions
   (`scope = PRAYER`, selected by `prayerType`, where NULL means "every prayer") and the guide checks
   (`scope = GUIDE`, selected by `guideId`). Any query that builds a prayer-quiz pool **must** filter
@@ -279,7 +284,22 @@ are warnings. Run `yarn lint` before finishing.
 - **Streak advances only on the first completion of a local day**, and the freeze flow uses a
   `Serializable` transaction plus a `SELECT … FOR UPDATE` on `user_streaks`.
 
-See `docs/DOMAIN.md` for the full rules (XP table, level curve, badges, freeze window).
+- **Auth is rate limited in two independent layers.** Per-IP throttling on every credential- or
+  email-touching route (`src/common/throttler/throttle.constants.ts`, registered globally by
+  `AppThrottlerModule`) **plus** a per-account lockout in `LoginAttemptService`. Neither is
+  sufficient alone. Do not move the throttler back into a feature module — it was private to
+  `ConsentModule`, which is why nothing else was protected.
+- **Access tokens are revocable.** Each carries a `tv` claim equal to
+  `user_credentials.tokenVersion`; `JwtStrategy` rejects a mismatch. Any change that must end every
+  session increments that counter — revoking refresh tokens alone leaves issued access tokens
+  working until they expire. `PATCH /auth/profile` returns a replacement pair so the caller is not
+  signed out by their own action.
+- **Credential rules are shared.** `src/auth/constants/credential.constants.ts` is the one place
+  username length and password complexity are defined; register, profile update and reset all use
+  it. The frontend mirrors them for UX only — the backend is the boundary.
+
+See `docs/DOMAIN.md` for the full rules (XP table, level curve, badges, freeze window,
+leaderboards).
 
 ## Known gaps — do not "fix" these silently, and do not document them as working
 
@@ -289,17 +309,12 @@ These are verified facts about the current tree, not bugs to fold into an unrela
   0, so `POST /gamification/action` with `STREAK_FREEZE` always fails with
   `NO_STREAK_FREEZE_AVAILABLE` unless the row is edited by hand. A granting mechanic (a paid store)
   is planned but deliberately not built yet — do not add an automatic one.
-- `StreakService.inspectStreakRisk()` is fully implemented but never called — no endpoint exposes
-  it.
 - `@Public()` (`src/common/decorators/public.decorator.ts`) is defined and read by `ConsentGuard`,
   but never applied to any handler.
 - `DEFAULT_MADHAB` (`'HANAFI'`) and `DEFAULT_LANGUAGE` in `src/auth/constants/` are unused; the
   Prisma default for `User.madhab` is `SHAFI`. Don't assume the constant is authoritative.
 - `RegisterDto.termsAccepted` / `privacyPolicyAccepted` are validated as `Equals(true)` but never
   read by `AuthService.register()` — the recorded consent versions come from the env config instead.
-- `updateProfile()` re-hashes passwords with bcrypt cost **10** while register/reset use **12**.
-- `refresh()` issues a new refresh token but does **not** revoke the presented one, so old tokens
-  stay valid until their 1-day expiry.
 - **`ConsentGuard` very likely never blocks.** It is registered as `APP_GUARD`, and in NestJS global
   guards run _before_ controller/route-scoped guards — so `req.user` is still unset when it runs and
   the `if (!userId) return true;` early-exit fires. _Inferred from framework ordering semantics, not

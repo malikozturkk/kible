@@ -33,9 +33,9 @@ emails a 6-digit code.
 
 ```jsonc
 {
-  "username": "malik_o", // ^[a-zA-Z0-9_]+$
+  "username": "malik_o", // ^[a-zA-Z0-9_]+$, 3–20 chars
   "email": "user@example.com",
-  "password": "min8chars", // ≥ 8
+  "password": "Str0ng!Pass", // 8–72 chars, must contain lower + upper + digit + symbol
   "gender": "MALE", // MALE | FEMALE
   "country": "Türkiye", // ≤ 64
   "city": "İstanbul", // ≤ 85
@@ -51,7 +51,16 @@ emails a 6-digit code.
 Returns `{ "tempToken": "<jwt>" }` — valid 10 minutes, carries `purpose: "register"`.
 
 Errors: `USERNAME_ALREADY_EXISTS` (409), `USER_ALREADY_EXISTS` (409), `ACTIVE_REGISTRATION_EXISTS`
-(409 — an unexpired pending registration already holds that email/username).
+(409 — an unexpired pending registration already holds that email/username), plus 400
+`VALIDATION_ERROR` with `USERNAME_TOO_SHORT` / `USERNAME_TOO_LONG` / `PASSWORD_TOO_SHORT` /
+`PASSWORD_TOO_LONG` / `PASSWORD_TOO_WEAK` in `attachment`.
+
+Throttled: **5 requests / hour** per IP (each call sends a real email).
+
+The credential rules live in `src/auth/constants/credential.constants.ts` and are shared by
+register, `PATCH /auth/profile` and `POST /auth/reset-password`, so no path is weaker than another.
+The frontend mirrors them in `secde/src/validations/auth.validation.ts` for pre-submit feedback only
+— the backend is the boundary.
 
 > The accepted consent **versions** are read from the server's `CONSENT_VERSION_*` env vars, not
 > from the request. `termsAccepted` / `privacyPolicyAccepted` are validated but otherwise unused.
@@ -61,14 +70,27 @@ Errors: `USERNAME_ALREADY_EXISTS` (409), `USER_ALREADY_EXISTS` (409), `ACTIVE_RE
 `{ "identifier": "<email or username>", "password": "…" }` — the identifier is routed by an email
 regex. Returns `{ accessToken, refreshToken, user }`.
 
-Errors: `INVALID_CREDENTIALS` (401) for both unknown user and wrong password.
+Errors: `INVALID_CREDENTIALS` (401) for both unknown user and wrong password;
+`ACCOUNT_TEMPORARILY_LOCKED` (401) once the account is locked out.
+
+Two independent limits guard this route:
+
+| Layer           | Bound                                    | Where                                                 |
+| --------------- | ---------------------------------------- | ----------------------------------------------------- |
+| IP throttle     | 5 requests / minute → **429**            | `@Throttle` + `THROTTLE_LOGIN`                        |
+| Account lockout | 10 consecutive failures → 15-minute lock | `LoginAttemptService`, `user_credentials.lockedUntil` |
+
+The password is compared _before_ the lock is reported, so a locked account is indistinguishable
+from a wrong password to a caller who does not know the password. A successful login clears the
+counter; so does a completed password reset.
 
 ### `POST /auth/refresh` — — · `200`
 
 `{ "refreshToken": "<64-hex>" }` → a new `{ accessToken, refreshToken, user }`. Errors:
-`INVALID_OR_EXPIRED_REFRESH_TOKEN` (401).
+`INVALID_OR_EXPIRED_REFRESH_TOKEN` (401). Throttled: 20 requests / minute.
 
-> The presented refresh token is **not** revoked, so it remains usable until its 1-day expiry.
+The presented refresh token **is revoked** as part of issuing the replacement pair (rotation), so
+replaying it returns `INVALID_OR_EXPIRED_REFRESH_TOKEN`.
 
 ### `POST /auth/logout` — `JWT` · `200`
 
@@ -110,12 +132,12 @@ All fields optional; only the supplied ones change.
 
 ```jsonc
 {
-  "username": "new_name",
+  "username": "new_name", // 3–20 chars; at most one change per 30 days
   "avatar": "…",
   "gender": "FEMALE", // stored on the avatar config
   "avatarColors": { "hair": "#2e1f14" }, // partial patch, each ^#[0-9A-Fa-f]{6}$
   "currentPassword": "…",
-  "newPassword": "…", // both required together, new ≥ 8
+  "newPassword": "…", // both required together; same complexity rule as register
   "language": "tr", // must be in SUPPORTED_LANGUAGES (only "tr")
 
   // Location + madhab. Prayer times are derived from these, so they must stay editable.
@@ -131,16 +153,52 @@ The four location fields move as a unit — sending some but not all returns
 `INCOMPLETE_LOCATION_UPDATE` (400). A city without its coordinates would leave prayer times pointing
 at the old place. `madhab` may be sent on its own.
 
-Returns the updated user with `avatarCustomization`. Errors: `USERNAME_ALREADY_EXISTS` (409),
-`PASSWORD_FIELDS_REQUIRED` (400), `INVALID_CURRENT_PASSWORD` (401), `INCOMPLETE_LOCATION_UPDATE`
-(400).
+Returns the updated user with `avatarCustomization`, plus `locationChangeCount` /
+`madhabChangeCount`.
+
+**When the password changed**, the response also carries a replacement token pair:
+
+```jsonc
+{ /* …user fields… */, "tokens": { "accessToken": "…", "refreshToken": "…" } }
+```
+
+A password change ends every _other_ session: `passwordUpdatedAt` is bumped, `tokenVersion` is
+incremented (retiring every access token already issued, including the one that made this request)
+and all refresh tokens are revoked. The caller must adopt `tokens` or its own next request will
+`401`. Hashing uses cost **12**, matching register and reset.
+
+Errors: `USERNAME_ALREADY_EXISTS` (409), `USERNAME_CHANGE_COOLDOWN_ACTIVE` (409 — renamed within the
+last `USERNAME_CHANGE_COOLDOWN_DAYS`, 30), `PASSWORD_FIELDS_REQUIRED` (400),
+`INVALID_CURRENT_PASSWORD` (401), `INCOMPLETE_LOCATION_UPDATE` (400),
+`LOCATION_CHANGE_LIMIT_REACHED` (409), `MADHAB_CHANGE_LIMIT_REACHED` (409), plus 400
+`VALIDATION_ERROR` for the username/password rules above.
+
+> `MAX_LOCATION_CHANGES` and `MAX_MADHAB_CHANGES` are both **1** — location and madhab can each be
+> changed once, ever. Prayer times derive from them, so this is a deliberate product constraint, not
+> an oversight; the settings screen states it explicitly.
 
 Valid `avatarColors` keys: `iris`, `pupil`, `hair`, `skin`, `lips`, `nose`, `earInner`, `neck`,
 `eyebrow`, `outfit`, `background`. Unset keys fall back to `DEFAULT_AVATAR_COLORS`.
 
+### `POST /auth/resume-registration` — — · `200` · throttled 5 req/min
+
+`{ "email": "…" }` → `{ "tempToken": "<jwt>" }`.
+
+Re-issues a temp token for a registration that is **already pending**, so a user who loses the
+in-memory one (page refresh on `/verify-otp`, closed tab, back button) is not locked out for the
+remaining ~10 minutes of the registration window.
+
+It creates nothing and sends no email. The pending row's `tokenHash` is rewritten, which invalidates
+the previous temp token — only one is ever live. The OTP code and its 3-minute clock are untouched.
+
+Errors: `NO_PENDING_REGISTRATION` (400) — returned identically for an unknown email and an expired
+registration, so this is not an account-existence oracle. The token alone grants nothing:
+`/otp/verify` still requires the emailed code.
+
 ### `POST /auth/forgot-password` — —
 
-`{ "email": "…" }` → `{ "message": "FORGOT_PASSWORD_EMAIL_SENT" }`.
+`{ "email": "…" }` → `{ "message": "FORGOT_PASSWORD_EMAIL_SENT" }`. Throttled: **3 requests /
+hour**.
 
 Returns success even for unknown emails (no account enumeration), but **does** return
 `ACTIVE_RESET_EXISTS` (409) when an unused, unexpired reset already exists. The emailed link is
@@ -149,14 +207,18 @@ the reset row is deleted and `EMAIL_SEND_FAILED` (500) is returned.
 
 ### `POST /auth/validate-reset-token` — —
 
-`{ "userId": "…", "token": "…" }` → `true`. Errors: `INVALID_OR_EXPIRED_TOKEN` (400),
-`USER_NOT_FOUND` (401).
+`{ "userId": "…", "token": "…" }` → `true`. Throttled: 5 requests / minute. Errors:
+`INVALID_OR_EXPIRED_TOKEN` (400), `USER_NOT_FOUND` (401).
 
 ### `POST /auth/reset-password` — —
 
-`{ "userId", "token", "newPassword" (≥ 8), "confirmPassword" }` → `null`. On success, in one
-transaction: the password hash is replaced, `passwordUpdatedAt` is bumped, **all** of the user's
-refresh tokens are revoked, and the reset row is marked used.
+`{ "userId", "token", "newPassword", "confirmPassword" }` → `null`. `newPassword` follows the shared
+complexity rule (see `POST /auth/register`). Throttled: 5 requests / minute.
+
+On success, in one transaction: the password hash is replaced, `passwordUpdatedAt` is bumped,
+`tokenVersion` is incremented (which invalidates every outstanding **access** token — see
+[`DOMAIN.md` §8](DOMAIN.md#tokens)), **all** of the user's refresh tokens are revoked, any
+brute-force lockout is cleared, and the reset row is marked used.
 
 Errors: `PASSWORDS_DO_NOT_MATCH` (400), `INVALID_OR_EXPIRED_TOKEN` (400), `USER_NOT_FOUND` (400),
 `PASSWORD_UPDATE_FAILED` (500).
@@ -177,7 +239,8 @@ Follow errors: `USER_NOT_FOUND` (404), `CANNOT_FOLLOW_YOURSELF` (400).
 
 ### `POST /otp/verify` — `TEMP` · `200`
 
-`{ "code": "123456" }` (exactly 6 digits). On success, atomically creates the `users` row plus its
+`{ "code": "123456" }` (exactly 6 digits). Throttled: **5 requests / minute** — a 6-digit code is
+only 10⁶ combinations with a 3-minute life. On success, atomically creates the `users` row plus its
 `user_credentials`, `user_xp`, `user_streaks` and `user_avatar_configs` records and two
 `user_consents` rows, deletes the pending registration, and returns
 `{ accessToken, refreshToken, user }` — the same shape as login.
@@ -188,8 +251,8 @@ Errors: `MISSING_TOKEN` / `INVALID_TOKEN_PURPOSE` / `INVALID_OR_EXPIRED_TOKEN` (
 
 ### `POST /otp/resend` — `TEMP` · `200`
 
-No body. Issues a new code only if the current one has already expired **and** at least 3 minutes of
-registration lifetime remain.
+No body. Throttled: **3 requests / hour** (sends a real email). Issues a new code only if the
+current one has already expired **and** at least 3 minutes of registration lifetime remain.
 
 Errors: `NO_PENDING_REGISTRATION` (400), `REGISTRATION_EXPIRED` (400), `ACTIVE_OTP_EXISTS` (400 —
 the current code is still valid), `INSUFFICIENT_TIME_FOR_NEW_OTP` (400).
@@ -299,6 +362,8 @@ today's has passed. Errors: `USER_NOT_FOUND` (400), `USER_LOCATION_NOT_SET` (400
   "isFriday": true,
   "isRamadan": false,
   "isEidDay": false,
+  "firstOfDayBonusXp": 10, // PRAYER_FIRST_OF_DAY_BONUS_XP
+  "firstOfDayBonusAvailable": true, // false once anything is completed today
   "prayers": [
     {
       "type": "FAJR",
@@ -316,8 +381,10 @@ today's has passed. Errors: `USER_NOT_FOUND` (400), `USER_LOCATION_NOT_SET` (400
       "completionStatus": null, // "ON_TIME" | "LATE" once completed, else null
       "completedAt": null,
       "streakContribution": false,
+      "xpAwarded": null, // XP actually granted; null until completed
       "pendingQuizId": null, // id of an open PENDING quiz, if any
-      "isLocked": false, // a FAILED/EXPIRED quiz exists for this prayer+date
+      "isLocked": false, // a FAILED quiz, or the attempt budget is spent
+      "attemptsRemaining": 2, // fresh quizzes left after time-outs
     },
   ],
 }
@@ -325,6 +392,16 @@ today's has passed. Errors: `USER_NOT_FOUND` (400), `USER_LOCATION_NOT_SET` (400
 
 The slot list is day-dependent: `JUMUAH` replaces `DHUHR` on Fridays, `TARAWIH` is appended during
 Ramadan, and `EID_FITR` / `EID_ADHA` are prepended on those days. See [`DOMAIN.md`](DOMAIN.md).
+
+**This endpoint settles lapsed quizzes before it answers.** Question timers run in the browser, so
+the server only learns a question expired when something touches the quiz. `PrayerQuizExpiryService`
+runs that sweep here, which is why `canMarkAsCompleted` / `isLocked` / `attemptsRemaining` are
+accurate on a plain read — previously a timed-out quiz kept reporting the slot as markable and
+clicking it returned `409`.
+
+`firstOfDayBonusXp` + `firstOfDayBonusAvailable` let the client show what a marking actually pays.
+The card used to print the slot's base reward alone and under-report the day's first prayer by the
+bonus (15 advertised, 25 awarded).
 
 `markWindowEndsAt` equals `windowEndsAt` for every prayer whose own window already runs up to the
 next daily prayer; only `FAJR` (sunrise → dhuhr) and `JUMUAH` (dhuhr + 15 min → asr) have a real
@@ -347,7 +424,7 @@ caller's own timezone (resolved from their coordinates) to decide what "today" i
   "atRisk": false, // true when gap === 1: alive, but breaks at local midnight
   "canFreezeNow": true, // isBroken && within the 3-day window && freezesAvailable > 0
   "freezeWindowExpired": false,
-  "lastFreezeUsedAt": null // most recent protected day, or null
+  "lastFreezeUsedAt": null, // most recent protected day, or null
 }
 ```
 
@@ -423,9 +500,14 @@ Errors:
 ```
 
 Errors: `PRAYER_NOT_AVAILABLE_TODAY` (404), `PRAYER_WINDOW_NOT_OPEN_YET` (409),
-`PRAYER_WINDOW_CLOSED` (409), `PRAYER_ALREADY_COMPLETED` (409), `PRAYER_MARKING_LOCKED` (409),
-`INSUFFICIENT_PRAYER_QUESTIONS` (503 — fewer than 3 active questions in the pool),
-`USER_LOCATION_NOT_SET` (400).
+`PRAYER_WINDOW_CLOSED` (409), `PRAYER_ALREADY_COMPLETED` (409), `PRAYER_MARKING_LOCKED` (409 — a
+**wrong answer** closed this prayer for the day), `PRAYER_ATTEMPT_LIMIT_REACHED` (409 — the
+`PRAYER_QUIZ_MAX_ATTEMPTS` budget is spent), `INSUFFICIENT_PRAYER_QUESTIONS` (503 — fewer than 3
+active questions in the pool), `USER_LOCATION_NOT_SET` (400).
+
+A quiz whose timer lapsed is retired as `EXPIRED`, not `FAILED`: calling this again draws a
+**fresh** question set, up to `PRAYER_QUIZ_MAX_ATTEMPTS` (2) per prayer per day. See
+[`DOMAIN.md` §3](DOMAIN.md#3-completing-a-prayer).
 
 ### `POST /gamification/prayer-questions/:quizId/questions/:questionId/start` · `200`
 
@@ -468,8 +550,16 @@ Body `{ "optionId": "<uuid>" }`.
 }
 ```
 
-An `INCORRECT` or `EXPIRED` answer sets `quizStatus: "FAILED"`, `isLocked: true`, locks every
-remaining question, and blocks any further attempt at that prayer for the day.
+The two failure modes now differ:
+
+| Answer      | `quizStatus` | `isLocked`                        | Can retry today?           |
+| ----------- | ------------ | --------------------------------- | -------------------------- |
+| `INCORRECT` | `FAILED`     | `true`                            | no — the prayer is closed  |
+| `EXPIRED`   | `EXPIRED`    | only when the budget is exhausted | yes, while attempts remain |
+
+Both lock every remaining question in that submission. A wrong answer still ends the prayer for the
+day; a lapsed timer costs one of two attempts, so a user interrupted mid-quiz does not lose the
+prayer outright.
 
 Errors: `QUIZ_NOT_FOUND` (404), `QUIZ_QUESTION_NOT_FOUND` (404), `QUIZ_QUESTION_ALREADY_ANSWERED`
 (409), `QUIZ_QUESTION_NOT_STARTED` (409), `QUIZ_OPTION_INVALID` (400), `QUIZ_EXPIRED` (410),
@@ -527,7 +617,16 @@ Controller-level `JwtAuthGuard`; all routes require `JWT`.
 ```
 
 Ranking tiers: exact username match → people you follow → friends-of-friends → everyone else, then
-by trigram similarity, then alphabetically. See the caveats in [`DOMAIN.md`](DOMAIN.md#user-search).
+by similarity, then alphabetically.
+
+Similarity has two modes. At **3+ characters** it is the trigram **overlap coefficient**
+(`|A ∩ B| / min(|A|,|B|)`); below that there are no trigrams to compare, so scoring falls back to
+substring position and length. Candidates scoring under `SEARCH_MIN_SIMILARITY` (0.5) are dropped.
+
+This replaced a Jaccard index with a `> 0.1` floor, which had two opposite failures: queries shorter
+than 3 characters matched **nothing** (typing `qa` returned "hiçbir eşleşme bulamadık" with 17
+matching users), while the low floor let unrelated names through (`qa_social` returned `qa_q1`). See
+[`DOMAIN.md`](DOMAIN.md#user-search).
 
 ### `GET /users/me/stats`
 
@@ -555,6 +654,61 @@ with `LocalDate.fromPersisted(...).toISO()` to match the `@db.Date` column it co
 The public subset: level (`level`, `badgeKey`, `progressPercent` only), streak (`current`,
 `longest`), prayers (`totalCompleted`, `breakdown`, `punctuality`), `social`, and `isSelf`. Errors:
 `USER_NOT_FOUND` (404).
+
+---
+
+## Leaderboard — `src/leaderboard/leaderboard.controller.ts`
+
+### `GET /leaderboard` — `JWT`
+
+Rankings. Replaced a hardcoded five-person list that the dashboard rendered as if it were real data.
+
+| Query    | Values                            | Default    |
+| -------- | --------------------------------- | ---------- |
+| `metric` | `STREAK` · `XP` · `PRAYERS`       | `STREAK`   |
+| `scope`  | `GLOBAL` · `CITY` · `FOLLOWING`   | `GLOBAL`   |
+| `period` | `ALL_TIME` · `WEEKLY` · `MONTHLY` | `ALL_TIME` |
+| `limit`  | 1–50                              | 10         |
+
+`period` only affects `PRAYERS`; `XP` and `STREAK` are running totals with no per-period history.
+`CITY` uses the caller's own `city`; `FOLLOWING` is the people they follow plus themselves.
+
+```jsonc
+{
+  "metric": "STREAK",
+  "scope": "GLOBAL",
+  "period": "ALL_TIME",
+  "city": null, // the board's city when scope = CITY
+  "entries": [
+    {
+      "rank": 1,
+      "username": "…",
+      "city": "İstanbul", // city only — never coordinates
+      "avatar": null,
+      "avatarCustomization": {},
+      "score": 7, // in the unit implied by metric
+      "isCurrentUser": false,
+    },
+  ],
+  "currentUser": { "rank": 12, "score": 3, "inTopList": false },
+}
+```
+
+Each row carries only what `/users/:username/stats` already treats as public — no email, id,
+coordinates or XP breakdown. `currentUser` is present even when the caller falls outside `entries`,
+so the client can state their real standing instead of inventing one.
+
+**`STREAK` is ranked in two passes.** `user_streaks.currentStreak` is the streak as of
+`lastActiveDate`, not as of today, so ranking on the raw column would put abandoned accounts on top.
+The indexed column selects a candidate window, then `evaluateStreakStatus()` re-evaluates each
+candidate in their own timezone — the same function `/users/me/stats` uses — and broken streaks fall
+to 0 and off the board. `XP` and `PRAYERS` rank entirely in SQL.
+
+Errors: `USER_NOT_FOUND` (404), plus 400 `VALIDATION_ERROR` with `INVALID_LEADERBOARD_METRIC` /
+`INVALID_LEADERBOARD_SCOPE` / `INVALID_LEADERBOARD_PERIOD` / `INVALID_LEADERBOARD_LIMIT`.
+
+Adding a board later ("bu ay en çok XP", "İstanbul'da en çok seri") is a new enum member plus a
+branch in `LeaderboardService` — not a new endpoint.
 
 ---
 
@@ -604,8 +758,9 @@ Content is static and in Turkish. With **80 % probability** one randomly chosen 
 }
 ```
 
-Answers are checked via `POST /question/guide/check`. Errors: `GUIDE_NOT_FOUND` (400), plus 400 from
-`ParseEnumPipe` for an unknown type.
+Answers are checked via `POST /question/guide/check`. Errors: `GUIDE_NOT_FOUND` — **404** for an
+unknown `:type` (the `ParseEnumPipe` used to surface a bare `BAD_REQUEST`, which is a status name
+rather than a domain key).
 
 ---
 

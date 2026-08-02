@@ -130,8 +130,9 @@ Preconditions, in order — each throws and stops the flow:
    `PRAYER_WINDOW_CLOSED` (409). Being past the own window is fine; it only makes the eventual
    completion `LATE`.
 3. No `PrayerCompletion` for `(user, type, date)` → else `PRAYER_ALREADY_COMPLETED` (409).
-4. No `FAILED` or `EXPIRED` submission for `(user, type, date)` → else `PRAYER_MARKING_LOCKED`
-   (409).
+4. No `FAILED` submission for `(user, type, date)` → else `PRAYER_MARKING_LOCKED` (409).
+5. Fewer than `PRAYER_QUIZ_MAX_ATTEMPTS` (2) `EXPIRED` submissions → else
+   `PRAYER_ATTEMPT_LIMIT_REACHED` (409).
 
 An existing `PENDING`, unexpired submission is **resumed**, not replaced. Otherwise 3 questions are
 picked at random (partial Fisher–Yates) from active `PrayerQuestion` rows where
@@ -160,24 +161,42 @@ The submission stores both ends (`windowEndsAt`, `markWindowEndsAt`) and
 | `PRAYER_QUIZ_EXPIRY_GRACE_MINUTES`              | 5     |
 
 The clock starts at `/start`, not at issue: `deadlineAt = shownAt + 25 s`. An answer arriving after
-`deadlineAt + 2 s` is treated as expired. Overdue `SHOWN` questions are also swept to `EXPIRED`
-lazily whenever the quiz is re-read.
+`deadlineAt + 2 s` is treated as expired.
+
+Timers run in the browser, so the server only learns a question lapsed when something touches the
+quiz. `PrayerQuizExpiryService.sweepStaleSubmissions()` performs that settle, and
+**`GET /gamification/daily-prayers` runs it too** — not just the quiz endpoints. Without that the
+daily view kept reporting `canMarkAsCompleted: true, isLocked: false` for a dead quiz, so the card
+offered an "İŞARETLE" button that was guaranteed to return `409`.
 
 ### Question state machine
 
 ```
 PENDING ──/start──▶ SHOWN ──correct──▶ CORRECT
-                      ├────wrong────▶ INCORRECT   ─┐
-                      └────timeout──▶ EXPIRED     ─┤
-                                                   ├─▶ siblings become LOCKED
-                                                   └─▶ submission becomes FAILED
+                      ├────wrong────▶ INCORRECT ─▶ siblings LOCKED, submission FAILED
+                      └────timeout──▶ EXPIRED   ─▶ siblings LOCKED, submission EXPIRED
+                                                   (one attempt spent, retry allowed)
 ```
 
 `CORRECT`, `INCORRECT`, `EXPIRED` and `LOCKED` are terminal. Submission statuses: `PENDING`,
 `PASSED`, `FAILED`, `EXPIRED`.
 
-**One mistake ends the day for that prayer.** There is no retry: the `FAILED` submission makes step
-4 above fail for the rest of the day. `attemptCount` is incremented but never used as a budget.
+**A wrong answer ends the day for that prayer.** There is no retry: the `FAILED` submission makes
+step 4 above fail for the rest of the day.
+
+**A lapsed timer does not.** Running out of time is recorded as `EXPIRED`, not `FAILED`, and costs
+one of `PRAYER_QUIZ_MAX_ATTEMPTS` (2) issuances per prayer per day. The next `issueQuiz` draws a
+**fresh** random set; exhausting the budget raises `PRAYER_ATTEMPT_LIMIT_REACHED`.
+
+The two used to be identical, which meant a user whose phone rang mid-quiz lost the prayer entirely.
+The cap is what stops the obvious abuse — deliberately timing out to read the questions, look up the
+answers, and retry — while a genuine interruption stays recoverable.
+
+| Outcome      | Submission status | Prayer closed for the day?        |
+| ------------ | ----------------- | --------------------------------- |
+| 3 correct    | `PASSED`          | completed                         |
+| wrong answer | `FAILED`          | **yes**                           |
+| timer lapsed | `EXPIRED`         | only once both attempts are spent |
 
 Option correctness (`isCorrect`) is never serialized to the client — options are returned as
 `{ id, text }` only.
@@ -419,6 +438,13 @@ The user row is created by **`OtpService`**, not `AuthService` — that is where
 field that must exist from day one. A new field generally has to be threaded through: `RegisterDto`
 → `RegisterData` → the `otp_verifications` column (needs a migration) → `tx.user.create`.
 
+**Losing the temp token is recoverable.** `POST /auth/resume-registration` mints a new one for a
+registration that is already pending, so a refresh on `/verify-otp` no longer strands the user for
+the rest of the 10-minute window (re-registering hits `ACTIVE_REGISTRATION_EXISTS` and there was no
+route back to the code screen). It creates nothing, sends no email, rewrites the pending row's
+`tokenHash` so only one temp token is ever live, and does not touch the OTP code or its clock. The
+frontend also persists the temp token now, so the endpoint is the fallback rather than the norm.
+
 OTP lifetimes: code 3 minutes, whole registration 10 minutes. `/otp/resend` only works once the
 current code has expired **and** ≥ 3 minutes of registration time remain. OTP comparison uses
 `crypto.timingSafeEqual`. Send failures during `create` are swallowed and logged; failures during
@@ -426,19 +452,65 @@ current code has expired **and** ≥ 3 minutes of registration time remain. OTP 
 
 ### Passwords
 
-`bcrypt(password + PEPPER)`. Cost **12** in register and reset, **10** in `updateProfile` — an
-inconsistency, not a rule. `PEPPER` is a server-side secret: changing it invalidates every stored
-hash.
+`bcrypt(password + PEPPER)` at cost **12** everywhere (`BCRYPT_COST`). `updateProfile` used to hash
+at 10, which meant the weakest path set the account's real strength. `PEPPER` is a server-side
+secret: changing it invalidates every stored hash.
+
+**Complexity** (`src/auth/constants/credential.constants.ts`, shared by register, profile update and
+reset): 8–72 characters, and at least one lowercase letter, one uppercase letter, one digit and one
+non-alphanumeric character. Failures surface as `PASSWORD_TOO_SHORT` / `PASSWORD_TOO_LONG` /
+`PASSWORD_TOO_WEAK`. The 72-byte ceiling is bcrypt's — longer input would be silently truncated, so
+it is rejected instead.
+
+**Usernames**: 3–20 characters matching `^[a-zA-Z0-9_]+$`. Length used to be enforced only in the
+frontend, so the API accepted a 1-character or 200-character name. Renaming is limited to once per
+`USERNAME_CHANGE_COOLDOWN_DAYS` (30) — a freed username could otherwise be claimed the instant it
+was vacated, which is a cheap impersonation route.
+
+### Brute-force protection
+
+Two independent layers on `POST /auth/login`, because neither is sufficient alone — an IP throttle
+cannot stop a distributed attack on one account, and a lockout cannot stop one host spraying many
+accounts:
+
+| Layer           | Bound                                    | State                                                  |
+| --------------- | ---------------------------------------- | ------------------------------------------------------ |
+| IP throttle     | 5 / minute → `429`                       | in-memory (`@nestjs/throttler`)                        |
+| Account lockout | 10 consecutive failures → 15-minute lock | `user_credentials.failedLoginAttempts` / `lockedUntil` |
+
+`LoginAttemptService` owns the second. The password is compared _before_ the lock is reported, so a
+locked account is indistinguishable from a wrong password to someone who does not know the password.
+A successful login or a completed password reset clears both counters.
+
+Ceilings for every guarded route live in `src/common/throttler/throttle.constants.ts`; the throttler
+itself is registered once, globally, by `AppThrottlerModule`. It used to be registered privately
+inside `ConsentModule`, which is why `/consent/accept` was the only protected endpoint.
 
 ### Tokens
 
-- **Access token** — JWT `{ sub, username }`, signed with `JWT_SECRET`, lifetime `JWT_EXPIRES_IN`.
-  `JwtStrategy` re-reads the user from the database on every request, so `req.user` is
-  `{ id, username, email, avatar }` and a deleted user is rejected immediately.
+- **Access token** — JWT `{ sub, username, tv }`, signed with `JWT_SECRET`, lifetime
+  `JWT_EXPIRES_IN`. `JwtStrategy` re-reads the user from the database on every request, so
+  `req.user` is `{ id, username, email, avatar }` and a deleted user is rejected immediately.
+
+  `tv` is `user_credentials.tokenVersion`. The strategy compares it and raises
+  `TOKEN_REVOKED_BY_PASSWORD_CHANGE` (401) on a mismatch. This is what makes _stateless_ tokens
+  revocable: revoking refresh tokens alone left every access token already handed out usable until
+  it expired. A counter rather than a `passwordUpdatedAt` timestamp comparison, because JWT `iat` is
+  only second-precision — a token minted in the same second as the change would slip through.
+
 - **Refresh token** — 32 random bytes, hex. Only its SHA-256 hash is stored; expiry is **1 day**
   (`REFRESH_TOKEN_EXPIRES_IN_DAYS`, hardcoded in both `AuthService` and `OtpService`).
-  `/auth/refresh` issues a new pair but does not revoke the presented token; `/auth/logout` revokes
-  one token; a password reset revokes all of them.
+  `/auth/refresh` **rotates**: it revokes the presented token as it issues the replacement pair, so
+  replaying one fails. `/auth/logout` revokes one token; a password change or reset revokes all of
+  them.
+
+### Ending every session
+
+A password change (`PATCH /auth/profile`) and a password reset both, in one transaction: replace the
+hash, bump `passwordUpdatedAt`, increment `tokenVersion`, revoke every refresh token, and clear any
+lockout. `PATCH /auth/profile` additionally returns a fresh `tokens` pair so the device that
+initiated the change stays signed in — otherwise the user would evict themselves along with the
+attacker they were trying to remove.
 
 ### Password reset
 
@@ -458,17 +530,59 @@ the enforcement side of this feature is probably inert today.
 
 ---
 
-## 9. User search
+## 9. Leaderboards
+
+`src/leaderboard/`. Exposed by `GET /leaderboard` (see [`API.md`](API.md)). Replaced a hardcoded
+five-person list in the frontend that was rendered as if it were real users.
+
+The query surface is `metric` × `scope` × `period`, so new boards ("bu ay en çok XP", "İstanbul'da
+en çok seri") are an enum member plus a branch, not a new endpoint.
+
+| Metric    | Source                                   | Honours `period`? |
+| --------- | ---------------------------------------- | ----------------- |
+| `STREAK`  | `user_streaks`, re-evaluated (see below) | no                |
+| `XP`      | `user_xp.totalXp` (indexed)              | no                |
+| `PRAYERS` | `prayer_completions` grouped by user     | yes               |
+
+`XP` and `STREAK` are running totals with no per-period history, so `period` is ignored for them.
+
+**Streak ranking cannot be a plain `ORDER BY`.** `user_streaks.currentStreak` is the streak as of
+`lastActiveDate`, not as of today — a user who stopped a week ago still stores 30 — so ranking the
+raw column would put abandoned accounts on top. Instead the indexed column selects a candidate
+window (`LEADERBOARD_SELF_RANK_SCAN_LIMIT`), then every candidate goes through
+`evaluateStreakStatus()` in their own timezone, exactly as `/users/me/stats` does. Broken streaks
+evaluate to 0 and drop off via `LEADERBOARD_MIN_SCORE`.
+
+**What a row may contain** is deliberately narrow: username, avatar, city and the ranked number —
+the same fields `/users/:username/stats` already treats as public. A leaderboard is the one screen
+that shows strangers to each other, so no email, id, coordinates or XP breakdown appears there.
+`currentUser` is returned separately so the client can state the caller's real standing rather than
+inventing one.
+
+---
+
+## 10. User search
 
 `UsersService.searchUsers` does similarity ranking **in the application**, not in PostgreSQL:
 
 1. Fetch up to **500** candidates matching `username ILIKE %query%` or any 3-gram of the query.
-2. Score each with Jaccard similarity over 3-gram sets; drop anything ≤ `0.1`.
+2. Score each, then drop anything below `SEARCH_MIN_SIMILARITY` (0.5):
+   - **3+ characters** — trigram **overlap coefficient**, `|A ∩ B| / min(|A|,|B|)`.
+   - **1–2 characters** — no trigrams exist, so score by substring position and length instead
+     (prefix beats mid-word; shorter username beats longer).
 3. Tier: `0` exact match → `1` you already follow → `2` followed by someone you follow → `3` other.
 4. Sort by tier, then similarity desc, then username asc.
 5. Paginate by array offset (`cursor`), returning `nextCursor` or `null`.
 
-Consequences worth knowing before touching it: the 500-row cap is applied _before_ scoring, so a
-common substring can push relevant users out of the result set; `totalCount` counts scored
-candidates, not all matches; and each result page issues two extra follow queries per user (`N+1` on
-mutual followers).
+This replaced a Jaccard index with a `> 0.1` floor, which failed in both directions at once:
+
+- Jaccard divides by the **union**, so it punished a short query against a long username purely for
+  the length difference — `malik` vs `malikozturkk` shares all three of the query's trigrams yet
+  scored 0.30. Simply raising the floor would have deleted exact prefix matches.
+- A 1–2 character query has no trigrams at all, so every candidate scored 0 and was filtered out:
+  typing `qa` returned "hiçbir eşleşme bulamadık" while 17 usernames contained it.
+- Meanwhile the low floor let noise through: `qa_social` also returned `qa_q1` and `qa_streak`.
+
+Consequences still worth knowing: the 500-row cap is applied _before_ scoring, so a common substring
+can push relevant users out of the result set; `totalCount` counts scored candidates, not all
+matches; and each result page issues two extra follow queries per user (`N+1` on mutual followers).

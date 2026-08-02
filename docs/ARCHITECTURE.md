@@ -173,3 +173,49 @@ rather than one fat service:
 
 **Domain object.** `LevelCalculator` (`gamification/domain/`) is pure and static — XP curve, level
 resolution and badge keys with no I/O. It is reused by `UserStatsService`.
+
+---
+
+## Rate limiting
+
+`AppThrottlerModule` (`src/common/throttler/`) registers `ThrottlerModule.forRoot()` once and
+re-exports it globally, so `@UseGuards(ThrottlerGuard)` works in any feature module. It previously
+lived inside `ConsentModule`, which is why `/consent/accept` was the only throttled route in the
+app.
+
+One `default` throttler is configured; each risky route narrows it with `@Throttle({ default: … })`
+using a named constant from `throttle.constants.ts`. Exceeding a limit returns **429**, which the
+frontend maps to "Çok fazla deneme yaptın. Lütfen biraz bekle."
+
+| Route                                                                        | Limit       |
+| ---------------------------------------------------------------------------- | ----------- |
+| `POST /auth/login`                                                           | 5 / minute  |
+| `POST /auth/register`                                                        | 5 / hour    |
+| `POST /auth/forgot-password`, `POST /otp/resend`                             | 3 / hour    |
+| `POST /otp/verify`                                                           | 5 / minute  |
+| `POST /auth/reset-password`, `/validate-reset-token`, `/resume-registration` | 5 / minute  |
+| `POST /auth/refresh`                                                         | 20 / minute |
+| `POST /consent/accept`                                                       | 10 / minute |
+
+The IP throttle is paired with a per-account lockout in `LoginAttemptService` — see
+[`DOMAIN.md` §8](DOMAIN.md#brute-force-protection). Storage is in-memory, so limits reset on restart
+and are per-instance; a multi-instance deployment needs a shared store.
+
+## Token revocation
+
+`JwtStrategy` compares the access token's `tv` claim against `user_credentials.tokenVersion` on
+every request and raises `TOKEN_REVOKED_BY_PASSWORD_CHANGE` (401) on a mismatch. Bumping that
+counter is how a password change or reset retires tokens that were already handed out — see
+[`DOMAIN.md` §8](DOMAIN.md#ending-every-session).
+
+## Lazy quiz expiry
+
+`PrayerQuizExpiryService` settles quizzes whose client-side timer lapsed. It is used by both
+`PrayerQuizService` and `PrayerScheduleService`; it exists as a separate provider precisely so the
+schedule service can run the sweep without depending on the quiz service, which already depends on
+it. `GET /gamification/daily-prayers` runs it before reading, so the daily view never advertises a
+prayer as markable when its quiz is already dead.
+
+## Leaderboard
+
+`LeaderboardModule` is read-only and owns no schema. See [`DOMAIN.md` §9](DOMAIN.md#9-leaderboards).

@@ -72,16 +72,28 @@ Two things that surprise people:
 
 `latitude` / `longitude` are nullable, so every prayer endpoint must handle `USER_LOCATION_NOT_SET`.
 
+`usernameUpdatedAt` records the last rename and drives the 30-day cooldown
+(`USERNAME_CHANGE_COOLDOWN_DAYS`); null means the user has never renamed.
+
 ### `UserCredential` → `user_credentials`
 
-One per user. `passwordHash` is `bcrypt(password + PEPPER)`; `passwordUpdatedAt` is bumped on reset
-(but not by `PATCH /auth/profile`).
+One per user. `passwordHash` is `bcrypt(password + PEPPER)` at cost 12 on every write path;
+`passwordUpdatedAt` is bumped by both `POST /auth/reset-password` and `PATCH /auth/profile`.
+
+| Column                | Purpose                                                                                                               |
+| --------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `tokenVersion`        | Stamped into each access token as `tv`. Incremented on any password change, which retires every token already issued. |
+| `failedLoginAttempts` | Consecutive failed logins. Cleared on success or on a completed reset.                                                |
+| `lockedUntil`         | Set once `LOGIN_MAX_FAILED_ATTEMPTS` (10) is reached; blocks login for `LOGIN_LOCK_DURATION_MS` (15 min).             |
+
+See [`DOMAIN.md` §8](DOMAIN.md#brute-force-protection).
 
 ### `RefreshToken` → `refresh_tokens`
 
 Stores `tokenHash` (SHA-256 of a 32-byte random hex token, `@unique`), `isRevoked`, `expiresAt`
 (created at now + 1 day). Rows are **never deleted** — revoked and expired tokens accumulate
-indefinitely; there is no cleanup cron for this table.
+indefinitely; there is no cleanup cron for this table. `/auth/refresh` rotates: it flips `isRevoked`
+on the presented row while inserting the replacement, so each token is single-use.
 
 ### `OtpVerification` → `otp_verifications`
 
@@ -246,7 +258,11 @@ Turkish-locale case folding. That is gone: options are real `prayer_question_opt
 | `20260801130000_prayer_late_marking`      | `PrayerCompletionStatus` enum; `status` / `xpBeforePenalty` + `(userId, status)` index on `prayer_completions`; `markWindowEndsAt` on `prayer_quiz_submissions`; `totalOnTime` / `totalLate` on `user_prayer_stats`; backfills all four (every pre-existing completion is `ON_TIME`) |
 
 | `20260801200000_profile_change_quotas` | `locationChangeCount` / `madhabChangeCount` on `users`,
-both defaulting to 0 so every existing user keeps one change | Note that `schema.prisma` declares
-`datasource db { provider = "postgresql" }` with **no `url`** — the connection string is supplied by
-[`prisma.config.ts`](../prisma.config.ts), which reads `DATABASE_URL` after loading `.env`. Prisma
-CLI commands therefore work without a `url` in the schema.
+both defaulting to 0 so every existing user keeps one change | | `20260802120000_login_lockout` |
+`failedLoginAttempts` / `lockedUntil` on `user_credentials`; `usernameUpdatedAt` on `users` (null =
+never renamed, so nobody is retroactively inside the rename cooldown) | |
+`20260802130000_token_version` | `tokenVersion` on `user_credentials`, default 0 — matching the `tv`
+claim's fallback, so tokens issued before this shipped keep validating | | Note that `schema.prisma`
+declares `datasource db { provider = "postgresql" }` with **no `url`** — the connection string is
+supplied by [`prisma.config.ts`](../prisma.config.ts), which reads `DATABASE_URL` after loading
+`.env`. Prisma CLI commands therefore work without a `url` in the schema.

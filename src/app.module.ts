@@ -11,6 +11,7 @@ import { WorshipModule } from './worship/worship.module';
 import { UsersModule } from './users/users.module';
 import { ConsentModule } from './consent/consent.module';
 import { consentConfig } from './config/consent.config';
+import { LeaderboardModule } from './leaderboard/leaderboard.module';
 
 @Module({
   imports: [
@@ -25,6 +26,7 @@ import { consentConfig } from './config/consent.config';
     WorshipModule,
     UsersModule,
     ConsentModule,
+    LeaderboardModule,
     ScheduleModule.forRoot(),
   ],
   controllers: [AppController],
