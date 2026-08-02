@@ -7,6 +7,7 @@ import { StreakService } from './services/streak.service';
 import { XpService } from './services/xp.service';
 import { PrayerScheduleService } from './services/prayer-schedule.service';
 import { PrayerQuizService } from './services/prayer-quiz.service';
+import { PrayerQuizExpiryService } from './services/prayer-quiz-expiry.service';
 import { PrayerCompletionService } from './services/prayer-completion.service';
 import { PrayerHistoryService } from './services/prayer-history.service';
 import { GamificationActionService } from './services/gamification-action.service';
@@ -20,6 +21,7 @@ import { GamificationActionService } from './services/gamification-action.servic
     XpService,
     PrayerScheduleService,
     PrayerQuizService,
+    PrayerQuizExpiryService,
     PrayerCompletionService,
     PrayerHistoryService,
     GamificationActionService,
@@ -30,6 +32,7 @@ import { GamificationActionService } from './services/gamification-action.servic
     XpService,
     PrayerScheduleService,
     PrayerQuizService,
+    PrayerQuizExpiryService,
     PrayerCompletionService,
     PrayerHistoryService,
   ],

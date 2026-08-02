@@ -14,15 +14,15 @@ import {
 import { toHijri, isRamadan, isEidFitr, isEidAdha, isFriday } from '../helpers/hijri.helper';
 import { DailyPrayersResponseDto, PrayerCardDto } from '../dto/daily-prayers.dto';
 import { resolveTimezone } from '../../common/utils/timezone.util';
-import {
-  PRAYER_FIRST_OF_DAY_BONUS_XP,
-} from '../constants/prayer.constants';
+import { PrayerQuizExpiryService } from './prayer-quiz-expiry.service';
+import { PRAYER_FIRST_OF_DAY_BONUS_XP } from '../constants/prayer.constants';
 
 @Injectable()
 export class PrayerScheduleService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly prayerTimeFactory: PrayerTimeFactory,
+    private readonly quizExpiryService: PrayerQuizExpiryService,
   ) {}
 
   async getUserPrayerConfig(userId: string): Promise<UserPrayerConfig> {
@@ -117,6 +117,11 @@ export class PrayerScheduleService {
     } = this.buildSlots(params);
     const localDate = LocalDate.fromInstant(zonedDate, timezone);
     const now = DateTime.now().setZone(timezone);
+    await this.quizExpiryService.sweepStaleSubmissions(
+      userId,
+      localDate.toUtcMidnight(),
+      now.toJSDate(),
+    );
 
     const [completions, allQuizzes] = await Promise.all([
       this.prisma.prayerCompletion.findMany({
