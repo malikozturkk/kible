@@ -11,6 +11,7 @@ import {
   Param,
 } from '@nestjs/common';
 import { Request as ExpressRequest } from 'express';
+import { Throttle, ThrottlerGuard } from '@nestjs/throttler';
 import { AuthService } from './auth.service';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
@@ -24,7 +25,15 @@ import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { ValidateResetTokenDto } from './dto/validate-reset-token.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import type { AuthenticatedRequest } from 'src/auth/strategies/jwt.strategy';
+import {
+  THROTTLE_EMAIL_SEND,
+  THROTTLE_LOGIN,
+  THROTTLE_REFRESH,
+  THROTTLE_REGISTER,
+  THROTTLE_RESET,
+} from '../common/throttler/throttle.constants';
 
+@UseGuards(ThrottlerGuard)
 @Controller('auth')
 export class AuthController {
   constructor(
@@ -33,17 +42,20 @@ export class AuthController {
   ) {}
 
   @Post('register')
+  @Throttle({ default: THROTTLE_REGISTER })
   async register(@Body() registerDto: RegisterDto): Promise<RegisterResponseDto> {
     return this.authService.register(registerDto);
   }
 
   @Post('login')
+  @Throttle({ default: THROTTLE_LOGIN })
   @HttpCode(HttpStatus.OK)
   async login(@Body() loginDto: LoginDto): Promise<AuthResponseDto> {
     return this.authService.login(loginDto);
   }
 
   @Post('refresh')
+  @Throttle({ default: THROTTLE_REFRESH })
   @HttpCode(HttpStatus.OK)
   async refresh(@Body() refreshTokenDto: RefreshTokenDto): Promise<AuthResponseDto> {
     return this.authService.refresh(refreshTokenDto);
@@ -75,6 +87,7 @@ export class AuthController {
   }
 
   @Post('forgot-password')
+  @Throttle({ default: THROTTLE_EMAIL_SEND })
   async forgotPassword(@Body() forgotPasswordDto: ForgotPasswordDto) {
     await this.passwordResetService.requestReset(forgotPasswordDto.email);
     return {
@@ -83,11 +96,13 @@ export class AuthController {
   }
 
   @Post('validate-reset-token')
+  @Throttle({ default: THROTTLE_RESET })
   async validateResetToken(@Body() validateResetTokenDto: ValidateResetTokenDto) {
     return this.passwordResetService.validateToken(validateResetTokenDto);
   }
 
   @Post('reset-password')
+  @Throttle({ default: THROTTLE_RESET })
   async resetPassword(@Body() resetPasswordDto: ResetPasswordDto) {
     return this.passwordResetService.resetPassword(resetPasswordDto);
   }

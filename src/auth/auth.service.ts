@@ -38,6 +38,7 @@ export class AuthService {
     private jwtService: JwtService,
     private otpService: OtpService,
     private configService: ConfigService,
+    private loginAttemptService: LoginAttemptService,
   ) {}
 
   private getConsentVersions(): ConsentVersionsMap {
@@ -155,9 +156,16 @@ export class AuthService {
     const securePassword = password + this.PEPPER;
     const isValid = await bcrypt.compare(securePassword, user.credentials.passwordHash);
 
+    if (this.loginAttemptService.isLocked(user.credentials)) {
+      throw new UnauthorizedException('ACCOUNT_TEMPORARILY_LOCKED');
+    }
+
     if (!isValid) {
+      await this.loginAttemptService.registerFailure(user.id);
       throw new UnauthorizedException('INVALID_CREDENTIALS');
     }
+
+    await this.loginAttemptService.registerSuccess(user.id);
 
     const tokens = await this.generateTokens(user.id, user.username);
     return {

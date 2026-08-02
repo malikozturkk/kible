@@ -12,6 +12,7 @@ import { UsersModule } from './users/users.module';
 import { ConsentModule } from './consent/consent.module';
 import { consentConfig } from './config/consent.config';
 import { LeaderboardModule } from './leaderboard/leaderboard.module';
+import { AppThrottlerModule } from './common/throttler/throttler.module';
 
 @Module({
   imports: [
@@ -19,6 +20,7 @@ import { LeaderboardModule } from './leaderboard/leaderboard.module';
       isGlobal: true,
       load: [consentConfig],
     }),
+    AppThrottlerModule,
     PrismaModule,
     AuthModule,
     GamificationModule,

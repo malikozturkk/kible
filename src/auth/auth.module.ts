@@ -9,6 +9,7 @@ import { PrismaModule } from '../prisma/prisma.module';
 import { OtpModule } from '../otp/otp.module';
 import { EmailModule } from '../email/email.module';
 import { PasswordResetService } from './password-reset.service';
+import { LoginAttemptService } from './services/login-attempt.service';
 
 @Module({
   imports: [
@@ -24,7 +25,7 @@ import { PasswordResetService } from './password-reset.service';
     EmailModule,
   ],
   controllers: [AuthController],
-  providers: [AuthService, JwtStrategy, PasswordResetService],
+  providers: [AuthService, JwtStrategy, PasswordResetService, LoginAttemptService],
   exports: [AuthService],
 })
 export class AuthModule {}
