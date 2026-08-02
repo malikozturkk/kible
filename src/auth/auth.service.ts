@@ -18,13 +18,20 @@ import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { AuthResponseDto } from './dto/auth-response.dto';
 import { AVATAR_COLOR_KEYS, type AvatarColorKey } from './constants/avatar.constants';
-import { MAX_LOCATION_CHANGES, MAX_MADHAB_CHANGES } from './constants/profile.constants';
+import {
+  MAX_LOCATION_CHANGES,
+  MAX_MADHAB_CHANGES,
+  USERNAME_CHANGE_COOLDOWN_DAYS,
+  BCRYPT_COST,
+} from './constants/profile.constants';
 import { AvatarColorsDto } from './dto/avatar-colors.dto';
 import { resolveAvatarColors, resolveAvatarCustomizationFromDb } from './utils/avatar-config.util';
 import { toAuthUser, USER_RESPONSE_SELECT } from './utils/user-response.util';
 import { RegisterResponseDto } from './dto/register-response.dto';
+import { UpdateProfileResponseDto } from './dto/update-profile-response.dto';
 import { JwtPayload } from './strategies/jwt.strategy';
 import { OtpService } from '../otp/otp.service';
+import { LoginAttemptService } from './services/login-attempt.service';
 import * as crypto from 'crypto';
 
 @Injectable()
@@ -213,7 +220,7 @@ export class AuthService {
     if (!storedToken || storedToken.isRevoked || storedToken.expiresAt < new Date()) {
       throw new UnauthorizedException('INVALID_OR_EXPIRED_REFRESH_TOKEN');
     }
-await this.prisma.refreshToken.update({
+    await this.prisma.refreshToken.update({
       where: { id: storedToken.id },
       data: { isRevoked: true },
     });
@@ -409,6 +416,7 @@ await this.prisma.refreshToken.update({
         madhab: true,
         locationChangeCount: true,
         madhabChangeCount: true,
+        usernameUpdatedAt: true,
       },
     });
     if (!currentUser) {
@@ -431,7 +439,8 @@ await this.prisma.refreshToken.update({
       throw new ConflictException('MADHAB_CHANGE_LIMIT_REACHED');
     }
 
-    if (username) {
+    const usernameChanged = username !== undefined && username !== currentUser.username;
+    if (usernameChanged) {
       const existingUser = await this.prisma.user.findFirst({
         where: {
           username,
@@ -441,6 +450,15 @@ await this.prisma.refreshToken.update({
 
       if (existingUser) {
         throw new ConflictException('USERNAME_ALREADY_EXISTS');
+      }
+
+      const lastRename = currentUser.usernameUpdatedAt;
+      if (lastRename) {
+        const cooldownEndsAt =
+          lastRename.getTime() + USERNAME_CHANGE_COOLDOWN_DAYS * 24 * 60 * 60 * 1000;
+        if (Date.now() < cooldownEndsAt) {
+          throw new ConflictException('USERNAME_CHANGE_COOLDOWN_ACTIVE');
+        }
       }
     }
 
@@ -469,7 +487,7 @@ await this.prisma.refreshToken.update({
 
       await this.prisma.$transaction(async (tx) => {
         await tx.userCredential.update({
-        where: { userId },
+          where: { userId },
           data: {
             passwordHash: hashedPassword,
             passwordUpdatedAt: new Date(),
@@ -482,7 +500,7 @@ await this.prisma.refreshToken.update({
         await tx.refreshToken.updateMany({
           where: { userId, isRevoked: false },
           data: { isRevoked: true },
-      });
+        });
       });
 
       passwordChanged = true;
@@ -491,7 +509,7 @@ await this.prisma.refreshToken.update({
     const user = await this.prisma.user.update({
       where: { id: userId },
       data: {
-        ...(username && { username }),
+        ...(usernameChanged && { username, usernameUpdatedAt: new Date() }),
         ...(avatar !== undefined && { avatar }),
         ...(language !== undefined && { language }),
         ...(locationChanged && {

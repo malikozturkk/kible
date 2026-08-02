@@ -1,3 +1,4 @@
 export const MAX_LOCATION_CHANGES = 1;
 export const MAX_MADHAB_CHANGES = 1;
+export const USERNAME_CHANGE_COOLDOWN_DAYS = 30;
 export const BCRYPT_COST = 12;

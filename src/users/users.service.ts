@@ -153,7 +153,7 @@ export class UsersService {
     }
     return trigrams;
   }
-
+  
   private trigramSimilarity(a: string, b: string): number {
     const triA = new Set(this.generateTrigrams(a));
     const triB = new Set(this.generateTrigrams(b));

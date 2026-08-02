@@ -86,6 +86,7 @@ model User {
   language      String          @default("tr")
   locationChangeCount Int         @default(0)
   madhabChangeCount   Int         @default(0)
+  usernameUpdatedAt   DateTime?
 
   // auth relations
   credentials   UserCredential?
