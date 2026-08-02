@@ -135,7 +135,7 @@ export class OtpService {
     return crypto.randomInt(100000, 999999).toString();
   }
 
-  private hashToken(token: string): string {
+  hashToken(token: string): string {
     return crypto.createHash('sha256').update(token).digest('hex');
   }
 

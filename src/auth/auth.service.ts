@@ -131,6 +131,30 @@ export class AuthService {
     };
   }
 
+  async resumeRegistration(email: string): Promise<RegisterResponseDto> {
+    const pending = await this.prisma.otpVerification.findFirst({
+      where: { email, expiresAt: { gt: new Date() } },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    if (!pending) {
+      throw new BadRequestException('NO_PENDING_REGISTRATION');
+    }
+
+    const remainingMs = pending.expiresAt.getTime() - Date.now();
+    const tempToken = this.jwtService.sign(
+      { email: pending.email, username: pending.username, purpose: 'register' },
+      { expiresIn: Math.floor(remainingMs / 1000) },
+    );
+
+    await this.prisma.otpVerification.update({
+      where: { id: pending.id },
+      data: { tokenHash: this.otpService.hashToken(tempToken) },
+    });
+
+    return { tempToken };
+  }
+
   async login(loginDto: LoginDto): Promise<AuthResponseDto> {
     const { identifier, password } = loginDto;
 

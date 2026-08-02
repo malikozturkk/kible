@@ -26,6 +26,7 @@ import { ValidateResetTokenDto } from './dto/validate-reset-token.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import type { AuthenticatedRequest } from 'src/auth/strategies/jwt.strategy';
 import { UpdateProfileResponseDto } from './dto/update-profile-response.dto';
+import { ResumeRegistrationDto } from './dto/resume-registration.dto';
 import {
   THROTTLE_EMAIL_SEND,
   THROTTLE_LOGIN,
@@ -85,6 +86,15 @@ export class AuthController {
     @Body() updateProfileDto: UpdateProfileDto,
   ): Promise<UpdateProfileResponseDto> {
     return this.authService.updateProfile(req.user.id, updateProfileDto);
+  }
+
+  @Post('resume-registration')
+  @Throttle({ default: THROTTLE_RESET })
+  @HttpCode(HttpStatus.OK)
+  async resumeRegistration(
+    @Body() resumeRegistrationDto: ResumeRegistrationDto,
+  ): Promise<RegisterResponseDto> {
+    return this.authService.resumeRegistration(resumeRegistrationDto.email);
   }
 
   @Post('forgot-password')
