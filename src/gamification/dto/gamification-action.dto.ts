@@ -56,6 +56,9 @@ export class PrayerCompletionResultDto {
   @IsBoolean()
   streakAdvanced: boolean;
 
+  @IsBoolean()
+  streakReset: boolean;
+
   @IsInt()
   currentStreak: number;
 

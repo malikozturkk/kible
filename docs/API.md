@@ -330,6 +330,30 @@ Ramadan, and `EID_FITR` / `EID_ADHA` are prepended on those days. See [`DOMAIN.m
 next daily prayer; only `FAJR` (sunrise → dhuhr) and `JUMUAH` (dhuhr + 15 min → asr) have a real
 late tail. See [`DOMAIN.md` §2.1](DOMAIN.md#21-on-time-vs-late-kaza).
 
+### `GET /gamification/streak-risk`
+
+Whether the caller's streak is currently broken and whether a freeze can still repair it. Uses the
+caller's own timezone (resolved from their coordinates) to decide what "today" is.
+
+```jsonc
+{
+  "currentStreak": 0, // effective value — 0 as soon as the streak is broken
+  "longestStreak": 7,
+  "freezesAvailable": 2,
+  "lastActiveDate": "2026-07-31",
+  "daysSinceLastActive": 2,
+  "isBroken": true,
+  "recoverableStreak": 7, // what a freeze would give back; 0 when nothing is broken
+  "atRisk": false, // true when gap === 1: alive, but breaks at local midnight
+  "canFreezeNow": true, // isBroken && within the 3-day window && freezesAvailable > 0
+  "freezeWindowExpired": false,
+  "lastFreezeUsedAt": null // most recent protected day, or null
+}
+```
+
+Repair goes through `POST /gamification/action` with `actionType: "STREAK_FREEZE"`. See
+[`DOMAIN.md` §5](DOMAIN.md#5-streaks).
+
 ### `GET /gamification/prayer-history?from=YYYY-MM-DD&to=YYYY-MM-DD`
 
 Per-day completion counts for the caller — the source of truth for calendar/heat-map views. Both
@@ -436,6 +460,7 @@ Body `{ "optionId": "<uuid>" }`.
     "level": 3,
     "leveledUp": false,
     "streakAdvanced": true,
+    "streakReset": false, // true when this completion restarted a broken streak at 1
     "currentStreak": 5,
     "longestStreak": 12,
     "isFirstOfDay": true,

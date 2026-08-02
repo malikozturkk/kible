@@ -1,7 +1,10 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
+import { DateTime } from 'luxon';
 import { PrismaService } from '../../prisma/prisma.service';
 import { LevelCalculator } from '../../gamification/domain/level-calculator';
+import { evaluateStreakStatus } from '../../gamification/domain/streak-status';
 import { LocalDate } from '../../common/utils/local-date';
+import { DEFAULT_TIMEZONE, resolveTimezone } from '../../common/utils/timezone.util';
 import { resolveAvatarCustomizationFromDb } from '../../auth/utils/avatar-config.util';
 import {
   PrayerBreakdownDto,
@@ -22,6 +25,8 @@ export class UserStatsService {
           select: {
             username: true,
             createdAt: true,
+            latitude: true,
+            longitude: true,
             avatarConfig: { select: { colors: true, accessories: true, gender: true } },
           },
         }),
@@ -44,6 +49,7 @@ export class UserStatsService {
     const xpValue = xpRow?.xp ?? 0;
     const totalXp = xpRow?.totalXp ?? 0;
     const levelView = LevelCalculator.computeLevelFromXp(xpValue);
+    const streakStatus = evaluateStreakStatus(streakRow, this.resolveToday(user));
 
     const passed = this.pickCount(quizCounts, 'PASSED');
     const failed = this.pickCount(quizCounts, 'FAILED');
@@ -65,12 +71,10 @@ export class UserStatsService {
         totalXpForNextLevel: levelView.totalXpForNextLevel,
       },
       streak: {
-        current: streakRow?.currentStreak ?? 0,
-        longest: streakRow?.longestStreak ?? 0,
-        freezeCount: streakRow?.streakFreezeCount ?? 0,
-        lastActiveDate: streakRow?.lastActiveDate
-          ? LocalDate.fromPersisted(streakRow.lastActiveDate).toISO()
-          : null,
+        current: streakStatus.currentStreak,
+        longest: streakStatus.longestStreak,
+        freezeCount: streakStatus.freezesAvailable,
+        lastActiveDate: streakStatus.lastActiveDate,
       },
       prayers: {
         totalCompleted: prayerStats?.totalCompleted ?? 0,
@@ -95,6 +99,8 @@ export class UserStatsService {
         id: true,
         username: true,
         createdAt: true,
+        latitude: true,
+        longitude: true,
         avatarConfig: { select: { colors: true, accessories: true, gender: true } },
       },
     });
@@ -112,6 +118,7 @@ export class UserStatsService {
     ]);
 
     const levelView = LevelCalculator.computeLevelFromXp(xpRow?.xp ?? 0);
+    const streakStatus = evaluateStreakStatus(streakRow, this.resolveToday(target));
 
     return {
       username: target.username,
@@ -123,8 +130,8 @@ export class UserStatsService {
         progressPercent: levelView.progressPercent,
       },
       streak: {
-        current: streakRow?.currentStreak ?? 0,
-        longest: streakRow?.longestStreak ?? 0,
+        current: streakStatus.currentStreak,
+        longest: streakStatus.longestStreak,
       },
       prayers: {
         totalCompleted: prayerStats?.totalCompleted ?? 0,
@@ -134,6 +141,14 @@ export class UserStatsService {
       social: { followerCount, followingCount },
       isSelf: target.id === viewerId,
     };
+  }
+
+  private resolveToday(user: { latitude: number | null; longitude: number | null }): LocalDate {
+    const timezone =
+      user.latitude === null || user.longitude === null
+        ? DEFAULT_TIMEZONE
+        : resolveTimezone(user.latitude, user.longitude);
+    return LocalDate.fromInstant(DateTime.now(), timezone);
   }
 
   private buildBreakdown(

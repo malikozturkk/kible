@@ -218,7 +218,9 @@ cumulativeXpForLevel(n)    = Σ requiredXp(1..n)
 ```
 
 So level 1 costs 52 XP, level 2 costs 68 (120 cumulative), level 3 costs 88 (208 cumulative), and
-the marginal cost grows quadratically. A user with 0 XP is **level 0**.
+the marginal cost grows quadratically. **Levels are 1-based: a user with 0 XP is level 1**, and
+reaching 52 XP promotes them to level 2. `computeLevelFromXp` counts cleared thresholds internally
+and returns `clearedTiers + 1`.
 
 `computeLevelFromXp(xp)` returns
 `{ xp, level, currentLevelXp, xpToNextLevel, totalXpForNextLevel, badgeKey, progressPercent }`,
@@ -248,7 +250,9 @@ amounts with `INVALID_XP_AMOUNT`.
 | < 200 | `community_inspiration` |
 | ≥ 200 | `legacy_of_devotion`    |
 
-Level 0 is reported with the level-1 badge (`Math.max(1, level)`).
+Badge thresholds read the 1-based level directly. Before levels became 1-based the badge was
+computed with `Math.max(1, level)` while the API still reported `0`, so the number and the badge
+disagreed for every new user.
 
 ---
 
@@ -260,6 +264,27 @@ UTC midnight; `gap = lastActiveDate.daysUntil(today)`.
 A day counts as active as soon as **any** prayer is completed on it, `ON_TIME` or `LATE` alike —
 punctuality affects XP only, never the streak.
 
+### Stored value vs. effective value
+
+`user_streaks.currentStreak` is the streak **as of `lastActiveDate`**, not as of today. Every read
+path therefore passes the row through `evaluateStreakStatus()`
+(`src/gamification/domain/streak-status.ts`), which derives what the user actually has right now:
+
+| `gap` | `currentStreak` returned | `isBroken` | `atRisk` | `recoverableStreak` |
+| ----- | ------------------------ | ---------- | -------- | ------------------- |
+| ≤ 0   | stored value             | false      | false    | 0                   |
+| 1     | stored value             | false      | **true** | 0                   |
+| ≥ 2   | **0**                    | **true**   | false    | stored value        |
+
+So a broken streak reads as `0` the moment the user opens the app — it does **not** wait for the
+next completion to be materialised. The stored value survives untouched so that a freeze can still
+restore it; `recoverableStreak` is exactly what a freeze would give back. `atRisk` means the streak
+is still alive but will break at local midnight unless a prayer is marked today.
+
+`UserStatsService` (both `/users/me/stats` and `/users/:username/stats`) resolves the viewed user's
+timezone from their coordinates and applies the same function, so profile pages never show a stale
+streak.
+
 ### Daily activity — runs only on the **first** completion of a local day
 
 | `gap`               | Result                                                                        |
@@ -268,6 +293,8 @@ punctuality affects XP only, never the streak.
 | ≤ 0                 | no change (already counted today)                                             |
 | 1                   | `currentStreak + 1`, advanced                                                 |
 | > 1                 | **reset to 1**, advanced (and `streakReset = true` if the old streak was > 0) |
+
+`streakReset` is surfaced on the completion response (`PrayerCompletionResultDto.streakReset`).
 
 `longestStreak = max(longestStreak, currentStreak)`.
 
@@ -292,8 +319,11 @@ decremented, so this endpoint effectively always returns `NO_STREAK_FREEZE_AVAIL
 edited by hand. A paid store is the intended granting mechanic and is not built yet; an automatic
 milestone grant was prototyped and deliberately removed so it would not collide with that design.
 
-`StreakService.inspectStreakRisk()` computes `atRisk` / `canFreezeNow` / `freezeWindowExpired` but
-is **not wired to any endpoint**.
+### Risk inspection — `GET /gamification/streak-risk`
+
+`StreakService.inspectStreakRisk()` returns `evaluateStreakStatus()` plus `lastFreezeUsedAt` (the
+most recent `StreakFreezeUsage.protectedDate`). The client uses it to show the "streak broken"
+dialog and to offer recovery while `canFreezeNow` is true.
 
 ---
 

@@ -19,6 +19,12 @@ export class StreakRiskAssessmentDto {
   daysSinceLastActive: number | null;
 
   @IsBoolean()
+  isBroken: boolean;
+
+  @IsInt()
+  recoverableStreak: number;
+
+  @IsBoolean()
   atRisk: boolean;
 
   @IsBoolean()
@@ -26,4 +32,8 @@ export class StreakRiskAssessmentDto {
 
   @IsBoolean()
   freezeWindowExpired: boolean;
+
+  @IsOptional()
+  @IsString()
+  lastFreezeUsedAt: string | null;
 }

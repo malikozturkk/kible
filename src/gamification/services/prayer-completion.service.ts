@@ -93,6 +93,7 @@ export class PrayerCompletionService {
         });
 
         let streakAdvanced = false;
+        let streakReset = false;
         let currentStreak: number;
         let longestStreak: number;
         if (isFirstOfDay) {
@@ -102,6 +103,7 @@ export class PrayerCompletionService {
             localDate,
           );
           streakAdvanced = streakResult.streakAdvanced;
+          streakReset = streakResult.streakReset;
           currentStreak = streakResult.currentStreak;
           longestStreak = streakResult.longestStreak;
 
@@ -133,6 +135,7 @@ export class PrayerCompletionService {
           level: xpResult.level,
           leveledUp: xpResult.leveledUp,
           streakAdvanced,
+          streakReset,
           currentStreak,
           longestStreak,
           isFirstOfDay,

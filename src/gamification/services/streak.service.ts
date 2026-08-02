@@ -6,6 +6,7 @@ import { LocalDate } from '../../common/utils/local-date';
 import { StreakRiskAssessmentDto } from '../dto/streak-risk.dto';
 import { StreakFreezeUsageResultDto } from '../dto/streak-freeze-result.dto';
 import { STREAK_FREEZE_MAX_GAP_DAYS } from '../constants/streak.constants';
+import { evaluateStreakStatus } from '../domain/streak-status';
 
 export interface StreakActivityResult {
   currentStreak: number;
@@ -19,36 +20,20 @@ export class StreakService {
   constructor(private readonly prisma: PrismaService) {}
 
   async inspectStreakRisk(userId: string, today: LocalDate): Promise<StreakRiskAssessmentDto> {
-    const streak = await this.prisma.userStreak.findUnique({ where: { userId } });
-
-    if (!streak || !streak.lastActiveDate || streak.currentStreak === 0) {
-      return {
-        currentStreak: streak?.currentStreak ?? 0,
-        longestStreak: streak?.longestStreak ?? 0,
-        freezesAvailable: streak?.streakFreezeCount ?? 0,
-        lastActiveDate: null,
-        daysSinceLastActive: null,
-        atRisk: false,
-        canFreezeNow: false,
-        freezeWindowExpired: false,
-      };
-    }
-
-    const lastActive = LocalDate.fromPersisted(streak.lastActiveDate);
-    const gap = lastActive.daysUntil(today);
-    const atRisk = gap >= 2;
-    const freezeWindowExpired = gap > STREAK_FREEZE_MAX_GAP_DAYS;
-    const canFreezeNow = atRisk && !freezeWindowExpired && streak.streakFreezeCount > 0;
+    const [streak, lastFreeze] = await Promise.all([
+      this.prisma.userStreak.findUnique({ where: { userId } }),
+      this.prisma.streakFreezeUsage.findFirst({
+        where: { userId },
+        orderBy: { protectedDate: 'desc' },
+        select: { protectedDate: true },
+      }),
+    ]);
 
     return {
-      currentStreak: streak.currentStreak,
-      longestStreak: streak.longestStreak,
-      freezesAvailable: streak.streakFreezeCount,
-      lastActiveDate: lastActive.toISO(),
-      daysSinceLastActive: gap,
-      atRisk,
-      canFreezeNow,
-      freezeWindowExpired,
+      ...evaluateStreakStatus(streak, today),
+      lastFreezeUsedAt: lastFreeze
+        ? LocalDate.fromPersisted(lastFreeze.protectedDate).toISO()
+        : null,
     };
   }
 

@@ -35,25 +35,27 @@ export class LevelCalculator {
   static computeLevelFromXp(xp: number): UserXpResponseDto {
     const safeXp = Math.max(0, Math.floor(xp || 0));
 
-    let level = 0;
-    let nextLevel = 1;
+    let clearedTiers = 0;
+    let nextTier = 1;
     while (true) {
-      const nextThreshold = LevelCalculator.cumulativeXpForLevel(nextLevel);
+      const nextThreshold = LevelCalculator.cumulativeXpForLevel(nextTier);
       if (safeXp >= nextThreshold) {
-        level = nextLevel;
-        nextLevel += 1;
+        clearedTiers = nextTier;
+        nextTier += 1;
       } else {
         break;
       }
     }
 
-    const totalForCurrentLevel = LevelCalculator.cumulativeXpForLevel(level);
-    const totalForNextLevel = LevelCalculator.cumulativeXpForLevel(level + 1);
+    const level = clearedTiers + 1;
+
+    const totalForCurrentLevel = LevelCalculator.cumulativeXpForLevel(clearedTiers);
+    const totalForNextLevel = LevelCalculator.cumulativeXpForLevel(clearedTiers + 1);
     const currentLevelXp = safeXp - totalForCurrentLevel;
     const xpToNextLevel = Math.max(0, totalForNextLevel - safeXp);
 
-    const badgeKey = LevelCalculator.getBadgeKey(Math.max(1, level));
-    const totalXpForNextLevel = LevelCalculator.requiredXp(level + 1);
+    const badgeKey = LevelCalculator.getBadgeKey(level);
+    const totalXpForNextLevel = LevelCalculator.requiredXp(clearedTiers + 1);
     const progress =
       totalXpForNextLevel > 0 ? Math.floor((currentLevelXp / totalXpForNextLevel) * 100) : 0;
     const progressPercent = Math.max(0, Math.min(100, progress));

@@ -18,6 +18,7 @@ import type { AuthenticatedRequest } from '../auth/strategies/jwt.strategy';
 import { GamificationService } from './gamification.service';
 import { DailyPrayersQueryDto, DailyPrayersResponseDto } from './dto/daily-prayers.dto';
 import { PrayerHistoryQueryDto, PrayerHistoryResponseDto } from './dto/prayer-history.dto';
+import { StreakRiskAssessmentDto } from './dto/streak-risk.dto';
 import {
   AnswerPrayerQuestionBodyDto,
   AnswerPrayerQuestionResponseDto,
@@ -51,6 +52,11 @@ export class GamificationController {
     @Query() query: PrayerHistoryQueryDto,
   ): Promise<PrayerHistoryResponseDto> {
     return this.gamificationService.prayerHistory(req.user.id, query.from, query.to);
+  }
+
+  @Get('streak-risk')
+  async streakRisk(@Request() req: AuthenticatedRequest): Promise<StreakRiskAssessmentDto> {
+    return this.gamificationService.streakRisk(req.user.id);
   }
 
   @Get('prayer-questions/:prayerId')
