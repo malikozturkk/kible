@@ -14,11 +14,22 @@ import {
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { Gender, Madhab } from '@prisma/client';
+import {
+  PASSWORD_COMPLEXITY_MESSAGE,
+  PASSWORD_MAX_LENGTH,
+  PASSWORD_MIN_LENGTH,
+  PASSWORD_PATTERN,
+  USERNAME_MAX_LENGTH,
+  USERNAME_MIN_LENGTH,
+  USERNAME_PATTERN,
+} from '../constants/credential.constants';
 
 export class RegisterDto {
   @IsString()
   @IsNotEmpty()
-  @Matches(/^[a-zA-Z0-9_]+$/, {
+  @MinLength(USERNAME_MIN_LENGTH, { message: 'USERNAME_TOO_SHORT' })
+  @MaxLength(USERNAME_MAX_LENGTH, { message: 'USERNAME_TOO_LONG' })
+  @Matches(USERNAME_PATTERN, {
     message: 'INVALID_USERNAME_FORMAT',
   })
   username: string;
@@ -29,9 +40,11 @@ export class RegisterDto {
 
   @IsString()
   @IsNotEmpty()
-  @MinLength(8, {
+  @MinLength(PASSWORD_MIN_LENGTH, {
     message: 'PASSWORD_TOO_SHORT',
   })
+  @MaxLength(PASSWORD_MAX_LENGTH, { message: 'PASSWORD_TOO_LONG' })
+  @Matches(PASSWORD_PATTERN, { message: PASSWORD_COMPLEXITY_MESSAGE })
   password: string;
 
   @IsEnum(Gender, { message: 'INVALID_GENDER' })
