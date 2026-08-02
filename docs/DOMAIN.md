@@ -130,9 +130,8 @@ Preconditions, in order — each throws and stops the flow:
    `PRAYER_WINDOW_CLOSED` (409). Being past the own window is fine; it only makes the eventual
    completion `LATE`.
 3. No `PrayerCompletion` for `(user, type, date)` → else `PRAYER_ALREADY_COMPLETED` (409).
-4. No `FAILED` submission for `(user, type, date)` → else `PRAYER_MARKING_LOCKED` (409).
-5. Fewer than `PRAYER_QUIZ_MAX_ATTEMPTS` (2) `EXPIRED` submissions → else
-   `PRAYER_ATTEMPT_LIMIT_REACHED` (409).
+4. No `FAILED` or `EXPIRED` submission for `(user, type, date)` → else `PRAYER_MARKING_LOCKED`
+   (409).
 
 An existing `PENDING`, unexpired submission is **resumed**, not replaced. Otherwise 3 questions are
 picked at random (partial Fisher–Yates) from active `PrayerQuestion` rows where
@@ -174,29 +173,29 @@ offered an "İŞARETLE" button that was guaranteed to return `409`.
 ```
 PENDING ──/start──▶ SHOWN ──correct──▶ CORRECT
                       ├────wrong────▶ INCORRECT ─▶ siblings LOCKED, submission FAILED
-                      └────timeout──▶ EXPIRED   ─▶ siblings LOCKED, submission EXPIRED
-                                                   (one attempt spent, retry allowed)
+                      └────timeout──▶ EXPIRED   ─▶ siblings LOCKED, submission FAILED
 ```
 
-`CORRECT`, `INCORRECT`, `EXPIRED` and `LOCKED` are terminal. Submission statuses: `PENDING`,
-`PASSED`, `FAILED`, `EXPIRED`.
+`CORRECT`, `INCORRECT`, `EXPIRED` and `LOCKED` are terminal question statuses. Submission statuses:
+`PENDING`, `PASSED`, `FAILED`, `EXPIRED`.
 
 **A wrong answer ends the day for that prayer.** There is no retry: the `FAILED` submission makes
 step 4 above fail for the rest of the day.
 
-**A lapsed timer does not.** Running out of time is recorded as `EXPIRED`, not `FAILED`, and costs
-one of `PRAYER_QUIZ_MAX_ATTEMPTS` (2) issuances per prayer per day. The next `issueQuiz` draws a
-**fresh** random set; exhausting the budget raises `PRAYER_ATTEMPT_LIMIT_REACHED`.
+**A lapsed timer does the same.** Running out of time retires the submission as `FAILED` too —
+whether it is settled interactively (`answerQuestion` after the deadline) or lazily by
+`sweepStaleSubmissions()`. There is no retry and no per-day attempt budget.
 
-The two used to be identical, which meant a user whose phone rang mid-quiz lost the prayer entirely.
-The cap is what stops the obvious abuse — deliberately timing out to read the questions, look up the
-answers, and retry — while a genuine interruption stays recoverable.
+`EXPIRED` remains a valid submission status for rows written before this rule was restored, so
+`assertNotLockedOut()` and the daily view both treat `FAILED` **and** `EXPIRED` as locked. Keep the
+two in sync: if only one of them locks, the card offers an "İŞARETLE" button that is guaranteed to
+return `409`.
 
-| Outcome      | Submission status | Prayer closed for the day?        |
-| ------------ | ----------------- | --------------------------------- |
-| 3 correct    | `PASSED`          | completed                         |
-| wrong answer | `FAILED`          | **yes**                           |
-| timer lapsed | `EXPIRED`         | only once both attempts are spent |
+| Outcome      | Submission status | Prayer closed for the day? |
+| ------------ | ----------------- | -------------------------- |
+| 3 correct    | `PASSED`          | completed                  |
+| wrong answer | `FAILED`          | **yes**                    |
+| timer lapsed | `FAILED`          | **yes**                    |
 
 Option correctness (`isCorrect`) is never serialized to the client — options are returned as
 `{ id, text }` only.

@@ -383,8 +383,7 @@ today's has passed. Errors: `USER_NOT_FOUND` (400), `USER_LOCATION_NOT_SET` (400
       "streakContribution": false,
       "xpAwarded": null, // XP actually granted; null until completed
       "pendingQuizId": null, // id of an open PENDING quiz, if any
-      "isLocked": false, // a FAILED quiz, or the attempt budget is spent
-      "attemptsRemaining": 2, // fresh quizzes left after time-outs
+      "isLocked": false, // a FAILED or EXPIRED quiz closed this prayer for the day
     },
   ],
 }
@@ -395,9 +394,8 @@ Ramadan, and `EID_FITR` / `EID_ADHA` are prepended on those days. See [`DOMAIN.m
 
 **This endpoint settles lapsed quizzes before it answers.** Question timers run in the browser, so
 the server only learns a question expired when something touches the quiz. `PrayerQuizExpiryService`
-runs that sweep here, which is why `canMarkAsCompleted` / `isLocked` / `attemptsRemaining` are
-accurate on a plain read — previously a timed-out quiz kept reporting the slot as markable and
-clicking it returned `409`.
+runs that sweep here, which is why `canMarkAsCompleted` and `isLocked` are accurate on a plain read
+— previously a timed-out quiz kept reporting the slot as markable and clicking it returned `409`.
 
 `firstOfDayBonusXp` + `firstOfDayBonusAvailable` let the client show what a marking actually pays.
 The card used to print the slot's base reward alone and under-report the day's first prayer by the
@@ -501,13 +499,11 @@ Errors:
 
 Errors: `PRAYER_NOT_AVAILABLE_TODAY` (404), `PRAYER_WINDOW_NOT_OPEN_YET` (409),
 `PRAYER_WINDOW_CLOSED` (409), `PRAYER_ALREADY_COMPLETED` (409), `PRAYER_MARKING_LOCKED` (409 — a
-**wrong answer** closed this prayer for the day), `PRAYER_ATTEMPT_LIMIT_REACHED` (409 — the
-`PRAYER_QUIZ_MAX_ATTEMPTS` budget is spent), `INSUFFICIENT_PRAYER_QUESTIONS` (503 — fewer than 3
-active questions in the pool), `USER_LOCATION_NOT_SET` (400).
+**wrong answer or a lapsed timer** closed this prayer for the day), `INSUFFICIENT_PRAYER_QUESTIONS`
+(503 — fewer than 3 active questions in the pool), `USER_LOCATION_NOT_SET` (400).
 
-A quiz whose timer lapsed is retired as `EXPIRED`, not `FAILED`: calling this again draws a
-**fresh** question set, up to `PRAYER_QUIZ_MAX_ATTEMPTS` (2) per prayer per day. See
-[`DOMAIN.md` §3](DOMAIN.md#3-completing-a-prayer).
+A quiz whose timer lapsed is retired as `FAILED`, exactly like a wrong answer: there is no retry and
+no per-day attempt budget. See [`DOMAIN.md` §3](DOMAIN.md#3-completing-a-prayer).
 
 ### `POST /gamification/prayer-questions/:quizId/questions/:questionId/start` · `200`
 
@@ -550,16 +546,16 @@ Body `{ "optionId": "<uuid>" }`.
 }
 ```
 
-The two failure modes now differ:
+The two failure modes are equivalent:
 
-| Answer      | `quizStatus` | `isLocked`                        | Can retry today?           |
-| ----------- | ------------ | --------------------------------- | -------------------------- |
-| `INCORRECT` | `FAILED`     | `true`                            | no — the prayer is closed  |
-| `EXPIRED`   | `EXPIRED`    | only when the budget is exhausted | yes, while attempts remain |
+| Answer      | `quizStatus` | `isLocked` | Can retry today?          |
+| ----------- | ------------ | ---------- | ------------------------- |
+| `INCORRECT` | `FAILED`     | `true`     | no — the prayer is closed |
+| `EXPIRED`   | `FAILED`     | `true`     | no — the prayer is closed |
 
-Both lock every remaining question in that submission. A wrong answer still ends the prayer for the
-day; a lapsed timer costs one of two attempts, so a user interrupted mid-quiz does not lose the
-prayer outright.
+`result` still distinguishes the two (`INCORRECT` vs `EXPIRED`) so the client can word the message
+correctly, but both lock every remaining question in that submission and close the prayer for the
+rest of the day.
 
 Errors: `QUIZ_NOT_FOUND` (404), `QUIZ_QUESTION_NOT_FOUND` (404), `QUIZ_QUESTION_ALREADY_ANSWERED`
 (409), `QUIZ_QUESTION_NOT_STARTED` (409), `QUIZ_OPTION_INVALID` (400), `QUIZ_EXPIRED` (410),

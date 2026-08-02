@@ -265,12 +265,13 @@ are warnings. Run `yarn lint` before finishing.
   `Shafi` (commit `823c539`), which put the two screens more than an hour apart for Hanafi users and
   closed Dhuhr's markable window at the Shafi Asr. Keep the two in sync — they must agree.
 - **A prayer is completed only by passing its quiz.** There is no "mark as prayed" endpoint. 3
-  questions, 25 s each (+2 s grace). A **wrong** answer fails the submission, locks the remaining
-  questions, and locks the user out of that prayer for that date — no retry. A **lapsed timer** is
-  different: it records `EXPIRED`, spends one of `PRAYER_QUIZ_MAX_ATTEMPTS` (2) and lets the user
-  draw a fresh question set. Timers are client-side, so `PrayerQuizExpiryService` settles stale
-  submissions lazily — including from `GET /gamification/daily-prayers`, so the daily view never
-  offers a button that is guaranteed to 409.
+  questions, 25 s each (+2 s grace). A **wrong** answer and a **lapsed timer** are equivalent: both
+  retire the submission as `FAILED`, lock the remaining questions, and close that prayer for that
+  date — there is no retry and no per-day attempt budget. Timers are client-side, so
+  `PrayerQuizExpiryService` settles stale submissions lazily — including from
+  `GET /gamification/daily-prayers`, so the daily view never offers a button that is guaranteed
+  to 409. `assertNotLockedOut()` and the daily view must keep treating `FAILED` **and** `EXPIRED` as
+  locked; `EXPIRED` rows predate this rule.
 - **One question bank, two scopes.** `prayer_questions` holds both the prayer-quiz questions
   (`scope = PRAYER`, selected by `prayerType`, where NULL means "every prayer") and the guide checks
   (`scope = GUIDE`, selected by `guideId`). Any query that builds a prayer-quiz pool **must** filter
