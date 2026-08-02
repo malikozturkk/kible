@@ -66,6 +66,10 @@ export class PrayerCardDto {
   streakContribution: boolean;
 
   @IsOptional()
+  @IsInt()
+  xpAwarded: number | null;
+
+  @IsOptional()
   @IsString()
   pendingQuizId: string | null;
 
@@ -88,6 +92,12 @@ export class DailyPrayersResponseDto {
 
   @IsBoolean()
   isEidDay: boolean;
+
+  @IsInt()
+  firstOfDayBonusXp: number;
+
+  @IsBoolean()
+  firstOfDayBonusAvailable: boolean;
 
   @IsArray()
   @ValidateNested({ each: true })

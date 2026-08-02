@@ -14,6 +14,9 @@ import {
 import { toHijri, isRamadan, isEidFitr, isEidAdha, isFriday } from '../helpers/hijri.helper';
 import { DailyPrayersResponseDto, PrayerCardDto } from '../dto/daily-prayers.dto';
 import { resolveTimezone } from '../../common/utils/timezone.util';
+import {
+  PRAYER_FIRST_OF_DAY_BONUS_XP,
+} from '../constants/prayer.constants';
 
 @Injectable()
 export class PrayerScheduleService {
@@ -139,6 +142,7 @@ export class PrayerScheduleService {
         .filter((q) => q.status === 'FAILED' || q.status === 'EXPIRED')
         .map((q) => q.prayerType),
     );
+    const firstOfDayBonusAvailable = completions.length === 0;
 
     const cards: PrayerCardDto[] = slots.map((slot) => {
       const completion = completionByType.get(slot.type);
@@ -163,6 +167,7 @@ export class PrayerScheduleService {
         completionStatus: completion?.status ?? null,
         completedAt: completion?.completedAt?.toISOString() ?? null,
         streakContribution: completion?.streakContributed ?? false,
+        xpAwarded: completion?.xpAwarded ?? null,
         pendingQuizId: pending?.id ?? null,
         isLocked,
       };
@@ -174,6 +179,8 @@ export class PrayerScheduleService {
       isFriday: friday,
       isRamadan: ramadan,
       isEidDay,
+      firstOfDayBonusXp: PRAYER_FIRST_OF_DAY_BONUS_XP,
+      firstOfDayBonusAvailable,
       prayers: cards,
     };
   }
