@@ -15,9 +15,9 @@ export class UsersService {
     const candidates = await this.prisma.user.findMany({
       where: {
         OR: [
-          { username: { contains: normalizedQuery, mode: 'insensitive' } },
+          { username: { contains: this.escapeLikePattern(normalizedQuery), mode: 'insensitive' } },
           ...trigrams.map((tri) => ({
-            username: { contains: tri, mode: 'insensitive' as const },
+            username: { contains: this.escapeLikePattern(tri), mode: 'insensitive' as const },
           })),
         ],
       },
@@ -136,6 +136,10 @@ export class UsersService {
     };
   }
 
+  private escapeLikePattern(value: string): string {
+    return value.replace(/[\\%_]/g, (char) => `\\${char}`);
+  }
+
   private shortQuerySimilarity(query: string, username: string): number {
     const index = username.indexOf(query);
     if (index === -1) return 0;
@@ -153,7 +157,7 @@ export class UsersService {
     }
     return trigrams;
   }
-  
+
   private trigramSimilarity(a: string, b: string): number {
     const triA = new Set(this.generateTrigrams(a));
     const triB = new Set(this.generateTrigrams(b));

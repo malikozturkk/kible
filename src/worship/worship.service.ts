@@ -8,6 +8,7 @@ import { FastingProgressService } from './services/fasting-progress.service';
 import { DayProgressService } from './services/day-progress.service';
 import { WorshipResponseMapper } from './mappers/worship-response.mapper';
 import { resolveTimezone } from '../common/utils/timezone.util';
+import { toHijriLabel } from '../gamification/helpers/hijri.helper';
 
 @Injectable()
 export class WorshipService {
@@ -80,18 +81,7 @@ export class WorshipService {
       now,
       timezone,
     );
-    const hijriLocale = 'tr-TR-u-ca-islamic-umalqura';
-    const hijriFormatter = new Intl.DateTimeFormat(hijriLocale, {
-      day: '2-digit',
-      month: '2-digit',
-      year: 'numeric',
-    });
-    const hijriMonthNameFormatter = new Intl.DateTimeFormat(hijriLocale, {
-      month: 'long',
-    });
-
-    const hijriDate = hijriFormatter.format(zonedDate.toJSDate());
-    const hijriMonthName = hijriMonthNameFormatter.format(zonedDate.toJSDate());
+    const hijri = toHijriLabel(zonedDate);
 
     return {
       meta: {
@@ -99,8 +89,8 @@ export class WorshipService {
         longitude,
         timezone,
         gregorianDate: zonedDate.toISODate(),
-        hijriDate,
-        hijriMonthName,
+        hijriDate: hijri.date,
+        hijriMonthName: hijri.monthName,
         calculationMethod: today.method,
         madhab: today.madhab,
       },

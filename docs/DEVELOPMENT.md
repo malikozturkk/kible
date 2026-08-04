@@ -27,8 +27,8 @@ questions, `GET /gamification/prayer-questions/:type` fails with `INSUFFICIENT_P
 
 ## Environment variables
 
-All of them are required. Missing values fail at different times, which matters when debugging a
-boot error.
+All of them are required except `TRUST_PROXY`. Missing values fail at different times, which matters
+when debugging a boot error.
 
 | Variable                                       | Used by                                                | Failure mode if missing                                                                 |
 | ---------------------------------------------- | ------------------------------------------------------ | --------------------------------------------------------------------------------------- |
@@ -37,6 +37,7 @@ boot error.
 | `JWT_EXPIRES_IN`                               | access-token lifetime (`ms` format: `15m`, `1h`, `7d`) | `undefined` expiry → tokens never expire                                                |
 | `PEPPER`                                       | password hashing                                       | silently hashes `password + "undefined"` — **all hashes become wrong**                  |
 | `FRONTEND_BASE_URL`                            | password-reset link **and** the CORS origin            | link becomes `undefined/reset-password?...`; CORS falls back to `http://localhost:3000` |
+| `TRUST_PROXY`                                  | Express `trust proxy` → the IP the throttler keys on   | **optional**; empty = trust nothing. See below                                          |
 | `CONSENT_VERSION_TERMS_OF_SERVICE`             | `consentConfig`                                        | **throws at boot**: `CONSENT_VERSIONS_NOT_CONFIGURED`                                   |
 | `CONSENT_VERSION_PRIVACY_POLICY`               | `consentConfig`                                        | same                                                                                    |
 | `MAILJET_API_KEY` / `MAILJET_API_SECRET`       | `EmailService`                                         | OTP and reset emails fail at send time                                                  |
@@ -53,6 +54,20 @@ hash, so treat it as immutable once any account exists.
 origin CORS accepts (trailing slashes are stripped). Consequences: the frontend must be served from
 exactly that scheme/host/port, the value must not contain a path, and there is no way to allow a
 second origin without a code change.
+
+`TRUST_PROXY` decides what `req.ip` is, and therefore what the per-IP rate limiter buckets on. Leave
+it empty locally. In front of a reverse proxy set it, or every user in the world shares one bucket:
+
+| Deployment                        | Value                 |
+| --------------------------------- | --------------------- |
+| Local / directly exposed          | empty (default)       |
+| One proxy hop (Nginx, ALB)        | `1`                   |
+| Two hops (Cloudflare → ALB)       | `2`                   |
+| Only specific proxies are trusted | `10.0.0.0/8,loopback` |
+
+Setting it when there is **no** proxy in front is a real vulnerability: `X-Forwarded-For` is
+attacker-controlled, so a client could hand itself a fresh rate-limit bucket per request. An
+unparseable value throws at boot rather than failing per-request.
 
 ## Database workflow
 

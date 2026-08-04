@@ -1,13 +1,14 @@
 import { Type } from 'class-transformer';
-import { IsArray, IsBoolean, IsInt, IsString, Matches, ValidateNested } from 'class-validator';
+import { IsArray, IsBoolean, IsInt, IsString, ValidateNested } from 'class-validator';
+import { IsCalendarDate } from '../../common/validators/is-calendar-date.validator';
 
 export class PrayerHistoryQueryDto {
   @IsString()
-  @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'from must be YYYY-MM-DD' })
+  @IsCalendarDate({ message: 'from must be YYYY-MM-DD' })
   from: string;
 
   @IsString()
-  @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'to must be YYYY-MM-DD' })
+  @IsCalendarDate({ message: 'to must be YYYY-MM-DD' })
   to: string;
 }
 

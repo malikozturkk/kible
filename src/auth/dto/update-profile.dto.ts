@@ -1,4 +1,4 @@
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import {
   IsString,
   IsOptional,
@@ -16,6 +16,12 @@ import { Madhab } from '@prisma/client';
 import { AvatarColorsDto } from './avatar-colors.dto';
 import { GENDER_VALUES, type GenderValue } from '../constants/gender.constants';
 import { SUPPORTED_LANGUAGES } from '../constants/language.constants';
+import {
+  CITY_MAX_LENGTH,
+  COUNTRY_MAX_LENGTH,
+  PLACE_NAME_PATTERN,
+} from '../constants/location.constants';
+import { trimPlaceName } from '../utils/place-name.util';
 import {
   PASSWORD_COMPLEXITY_MESSAGE,
   PASSWORD_MAX_LENGTH,
@@ -67,12 +73,16 @@ export class UpdateProfileDto {
 
   @IsString()
   @IsOptional()
-  @MaxLength(64)
+  @Transform(trimPlaceName)
+  @MaxLength(COUNTRY_MAX_LENGTH, { message: 'INVALID_COUNTRY' })
+  @Matches(PLACE_NAME_PATTERN, { message: 'INVALID_COUNTRY' })
   country?: string;
 
   @IsString()
   @IsOptional()
-  @MaxLength(85)
+  @Transform(trimPlaceName)
+  @MaxLength(CITY_MAX_LENGTH, { message: 'INVALID_CITY' })
+  @Matches(PLACE_NAME_PATTERN, { message: 'INVALID_CITY' })
   city?: string;
 
   @Type(() => Number)

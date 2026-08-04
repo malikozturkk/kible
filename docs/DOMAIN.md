@@ -524,8 +524,10 @@ and are loaded by `consentConfig`, which **throws at boot** if either is missing
 append-only rows unique on `(userId, type, version)`; "current" means the newest `acceptedAt` per
 type. Bumping a version makes `requiresReaccept` true for everyone until they re-accept.
 
-See the `ConsentGuard` ordering caveat in [`ARCHITECTURE.md`](ARCHITECTURE.md#request-lifecycle) —
-the enforcement side of this feature is probably inert today.
+Enforcement is server-side: `JwtAuthGuard` delegates to `ConsentGuard` after authentication, so any
+route behind `JwtAuthGuard` returns **403 `CONSENT_REQUIRED`** while a required version is
+unaccepted. See [`ARCHITECTURE.md`](ARCHITECTURE.md#request-lifecycle) for the guard chain and the
+bypass list.
 
 ---
 

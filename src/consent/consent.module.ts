@@ -1,10 +1,10 @@
-import { Module } from '@nestjs/common';
-import { APP_GUARD } from '@nestjs/core';
+import { Global, Module } from '@nestjs/common';
 import { CacheModule } from '@nestjs/cache-manager';
 import { ConsentService } from './consent.service';
 import { ConsentController } from './consent.controller';
 import { ConsentGuard } from './guards/consent.guard';
 
+@Global()
 @Module({
   imports: [
     CacheModule.register({
@@ -12,13 +12,7 @@ import { ConsentGuard } from './guards/consent.guard';
     }),
   ],
   controllers: [ConsentController],
-  providers: [
-    ConsentService,
-    {
-      provide: APP_GUARD,
-      useClass: ConsentGuard,
-    },
-  ],
-  exports: [ConsentService],
+  providers: [ConsentService, ConsentGuard],
+  exports: [ConsentService, ConsentGuard],
 })
 export class ConsentModule {}

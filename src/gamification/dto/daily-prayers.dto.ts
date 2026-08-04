@@ -6,14 +6,14 @@ import {
   IsInt,
   IsOptional,
   IsString,
-  Matches,
   ValidateNested,
 } from 'class-validator';
 import { PrayerCategory, PrayerCompletionStatus, PrayerType } from '@prisma/client';
+import { IsCalendarDate } from '../../common/validators/is-calendar-date.validator';
 
 export class DailyPrayersQueryDto {
   @IsString()
-  @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'date must be YYYY-MM-DD' })
+  @IsCalendarDate()
   date: string;
 }
 

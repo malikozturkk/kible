@@ -6,19 +6,46 @@ export interface HijriDate {
   day: number;
 }
 
+function hijriAnchor(local: DateTime): Date {
+  return new Date(Date.UTC(local.year, local.month - 1, local.day, 12));
+}
+
 export function toHijri(local: DateTime): HijriDate {
-  const anchor = new Date(Date.UTC(local.year, local.month - 1, local.day, 12));
   const parts = new Intl.DateTimeFormat('en-u-ca-islamic-umalqura', {
     day: 'numeric',
     month: 'numeric',
     year: 'numeric',
     timeZone: 'UTC',
-  }).formatToParts(anchor);
+  }).formatToParts(hijriAnchor(local));
 
   return {
     year: parseInt(parts.find((p) => p.type === 'year')!.value, 10),
     month: parseInt(parts.find((p) => p.type === 'month')!.value, 10),
     day: parseInt(parts.find((p) => p.type === 'day')!.value, 10),
+  };
+}
+
+export interface HijriLabel {
+  date: string;
+  monthName: string;
+}
+
+const HIJRI_DISPLAY_LOCALE = 'tr-TR-u-ca-islamic-umalqura';
+
+export function toHijriLabel(local: DateTime): HijriLabel {
+  const anchor = hijriAnchor(local);
+
+  return {
+    date: new Intl.DateTimeFormat(HIJRI_DISPLAY_LOCALE, {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      timeZone: 'UTC',
+    }).format(anchor),
+    monthName: new Intl.DateTimeFormat(HIJRI_DISPLAY_LOCALE, {
+      month: 'long',
+      timeZone: 'UTC',
+    }).format(anchor),
   };
 }
 

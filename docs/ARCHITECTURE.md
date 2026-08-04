@@ -44,8 +44,11 @@ AppModule
 └─ ConsentModule
    ├─ CacheModule.register()      non-global, in-memory
    ├─ ThrottlerModule.forRoot([{ ttl: 60_000, limit: 10 }])
-   └─ APP_GUARD → ConsentGuard    application-wide guard
+   └─ ConsentGuard                @Global + exported, injected by JwtAuthGuard
 ```
+
+`ConsentModule` is `@Global()` and exports `ConsentGuard` so that `JwtAuthGuard` — which is
+instantiated in every feature module that protects a route — can inject it.
 
 Note that `OtpModule` and `QuestionsModule` are not listed in `AppModule` — their controllers are
 still mounted because the modules are reachable through `AuthModule` and `GuidesModule`.
@@ -58,22 +61,53 @@ still mounted because the modules are reachable through `AuthModule` and `Guides
 
 ```
 HTTP request
+  → trust proxy (req.ip resolved from X-Forwarded-For when TRUST_PROXY is set)
+  → helmet + Permissions-Policy (src/common/security/security-headers.ts)
   → CORS
-  → APP_GUARD: ConsentGuard              (see caveat below)
-  → controller/route guards: JwtAuthGuard | OtpJwtGuard | ThrottlerGuard
+  → controller/route guards: JwtAuthGuard (→ ConsentGuard) | OtpJwtGuard | ThrottlerGuard
   → ValidationPipe (+ ParseEnumPipe / ParseUUIDPipe on params)
   → Controller → Service → PrismaService → PostgreSQL
   → ResponseInterceptor wraps the return value in the envelope
   → (on throw) GlobalExceptionFilter renders the error envelope
 ```
 
-**ConsentGuard ordering caveat.** NestJS executes global guards _before_ controller- and
-route-scoped guards. `ConsentGuard` reads `req.user?.id` and returns `true` when it is absent — but
-`req.user` is populated by `JwtAuthGuard`, which runs later. The practical consequence is that the
-consent gate is unlikely to ever block a request. This is inferred from framework ordering semantics
-and has **not** been verified at runtime; confirm before depending on it either way. The guard also
-honors `@ConsentBypass()`, `@Public()`, and a static `CONSENT_BYPASS_ROUTES` regex list covering
-`/consent/status`, `/consent/accept`, `/auth/logout`, `/auth/refresh` and `/legal/*`.
+**The consent gate hangs off `JwtAuthGuard`, not `APP_GUARD`.** `ConsentGuard` needs `req.user`,
+which only exists after authentication; as a global guard it ran first and its
+`if (!userId) return true` early-exit fired on every request, so it never blocked anything (verified
+at runtime: four protected endpoints returned 200 for an account whose consent rows were stale).
+`JwtAuthGuard` now awaits `super.canActivate()` and then delegates to `ConsentGuard`, so **every
+route that already uses `JwtAuthGuard` is gated** — including routes added later — and the ordering
+is explicit rather than dependent on Nest's global-guard sequencing. The `APP_GUARD` registration
+was removed.
+
+Routes behind `OtpJwtGuard` (`/otp/verify`, `/otp/resend`) are deliberately outside the gate: they
+run before the account exists. `ConsentGuard` still honors `@ConsentBypass()`, `@Public()`, and the
+static `CONSENT_BYPASS_ROUTES` regex list covering `/consent/status`, `/consent/accept`,
+`/auth/logout`, `/auth/refresh` and `/legal/*`.
+
+### Trust proxy and client IP
+
+`@nestjs/throttler` keys its buckets on `req.ip`. Without `trust proxy`, Express reports the socket
+address — behind Nginx/ALB/Cloudflare/Vercel that is the proxy's IP for every request, which
+collapses **all** users into one bucket (globally 5 registrations/hour, 5 logins/minute, …).
+`main.ts` calls `app.set('trust proxy', resolveTrustProxy(process.env.TRUST_PROXY))`.
+
+`TRUST_PROXY` (`src/common/utils/trust-proxy.util.ts`) accepts either a hop count (`1`) or a
+comma-separated list of trusted IPs/CIDRs/`loopback`/`linklocal`/`uniquelocal`. Unset or empty means
+**do not trust any proxy** — the safe default, because trusting a forwarded header with no proxy in
+front lets any client spoof its IP and reset its own rate limit. Anything unparseable throws at
+boot.
+
+Throttler storage is still the in-memory default, so limits are per-instance. A multi-instance
+deployment needs a shared (Redis) storage backend — not built.
+
+### Security headers
+
+`applySecurityHeaders()` (`src/common/security/security-headers.ts`) runs helmet plus an explicit
+`Permissions-Policy`. For a JSON API the CSP is
+`default-src/base-uri/form-action/frame-ancestors 'none'`; `Cross-Origin-Resource-Policy` is
+`cross-origin` because the frontend is a different origin. `X-Powered-By` is removed by helmet,
+`X-Frame-Options` is `DENY`, HSTS is two years with `includeSubDomains; preload`.
 
 ## Cross-cutting concerns
 

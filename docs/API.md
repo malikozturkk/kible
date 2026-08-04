@@ -37,8 +37,8 @@ emails a 6-digit code.
   "email": "user@example.com",
   "password": "Str0ng!Pass", // 8–72 chars, must contain lower + upper + digit + symbol
   "gender": "MALE", // MALE | FEMALE
-  "country": "Türkiye", // ≤ 64
-  "city": "İstanbul", // ≤ 85
+  "country": "Türkiye", // ≤ 64, PLACE_NAME_PATTERN
+  "city": "İstanbul", // ≤ 85, PLACE_NAME_PATTERN
   "latitude": 41.0082, // -90..90, ≤ 8 decimals
   "longitude": 28.9784, // -180..180, ≤ 8 decimals
   "madhab": "HANAFI", // SHAFI | HANAFI
@@ -141,13 +141,20 @@ All fields optional; only the supplied ones change.
   "language": "tr", // must be in SUPPORTED_LANGUAGES (only "tr")
 
   // Location + madhab. Prayer times are derived from these, so they must stay editable.
-  "country": "Türkiye", // ≤ 64
-  "city": "Konya", // ≤ 85
+  "country": "Türkiye", // ≤ 64, PLACE_NAME_PATTERN
+  "city": "Konya", // ≤ 85, PLACE_NAME_PATTERN
   "latitude": 37.8746, // -90..90, ≤ 8 decimals
   "longitude": 32.4932, // -180..180, ≤ 8 decimals
   "madhab": "HANAFI", // SHAFI | HANAFI
 }
 ```
+
+`country` and `city` are validated server-side, not just length-capped: leading/trailing whitespace
+is trimmed and internal runs collapsed, then the value must match `PLACE_NAME_PATTERN`
+(`src/auth/constants/location.constants.ts`) — a Unicode letter followed by letters, combining
+marks, spaces, `-`, `'`, `’` and `.`. `<img src=x onerror=alert(1)>` is now `400 VALIDATION_ERROR` /
+`INVALID_CITY` instead of being stored verbatim and shown to strangers in the leaderboard. Same rule
+on `POST /auth/register`.
 
 The four location fields move as a unit — sending some but not all returns
 `INCOMPLETE_LOCATION_UPDATE` (400). A city without its coordinates would leave prayer times pointing
@@ -297,7 +304,15 @@ Both routes carry `@ConsentBypass()`, so they stay reachable while a re-accept i
 
 ### `GET /worship?date=YYYY-MM-DD` — `JWT`
 
-`date` is **required**. Coordinates, madhab and timezone all come from the authenticated user.
+`date` is **required** and validated by `@IsCalendarDate()`
+(`src/common/validators/is-calendar-date.validator.ts`), which checks the calendar and not just the
+shape: `2026-13-45`, `2026-02-30`, `not-a-date` and an empty value all give **400
+`VALIDATION_ERROR`** with `date must be YYYY-MM-DD` in `attachment`. The same validator guards
+`/gamification/daily-prayers` and `/gamification/prayer-history`.
+
+Coordinates, madhab and timezone all come from the authenticated user. `meta.hijriDate` /
+`meta.hijriMonthName` are produced by `toHijriLabel()`, anchored to 12:00 UTC of the **user's**
+calendar day, so they do not shift with the server's `TZ`.
 
 ```jsonc
 {
@@ -316,7 +331,7 @@ Both routes carry `@ConsentBypass()`, so they stay reachable while a re-accept i
       "time": "04:12",
       "iso": "…",
       "remainingSeconds": 0,
-      "isNext": false,
+      "isNext": false, // the entry the countdown runs toward — see below
       "isPassed": true,
     },
     "sunrise": {},
@@ -343,7 +358,24 @@ Both routes carry `@ConsentBypass()`, so they stay reachable while a re-accept i
 ```
 
 `remainingSeconds` inside `times` counts to the **next occurrence** — tomorrow's instance once
-today's has passed. Errors: `USER_NOT_FOUND` (400), `USER_LOCATION_NOT_SET` (400).
+today's has passed.
+
+`isNext` is `nextPrayer.time > now && nextPrayer.name === key`, i.e. it marks the entry the
+countdown is running toward, whether that occurrence is today's or tomorrow's:
+
+| Situation                      | Row carrying `isNext`                        |
+| ------------------------------ | -------------------------------------------- |
+| Mid-day                        | the next prayer of the requested day         |
+| Between isha and the next fajr | `fajr` — `isPassed` stays `true` on that row |
+| A day entirely in the past     | none                                         |
+| A future day                   | `fajr`                                       |
+
+The second row is the reason for the condition: `nextPrayer.isTomorrow` used to suppress the flag,
+so for the ~6 hours between isha and fajr no entry was `isNext` at all while `nextPrayer` still said
+`"fajr"` — the client marked all six as passed and contradicted its own hero card.
+
+Errors: `USER_NOT_FOUND` (400), `USER_LOCATION_NOT_SET` (400), `VALIDATION_ERROR` (400 — bad
+`date`).
 
 ---
 
@@ -614,6 +646,10 @@ Controller-level `JwtAuthGuard`; all routes require `JWT`.
 
 Ranking tiers: exact username match → people you follow → friends-of-friends → everyone else, then
 by similarity, then alphabetically.
+
+`query` is escaped before it reaches Prisma's `contains` (`escapeLikePattern`: `\`, `%`, `_`), so
+LIKE metacharacters are matched literally. Without it `_` was a single-character wildcard and
+returned every user in the table; `%` returned everything too.
 
 Similarity has two modes. At **3+ characters** it is the trigram **overlap coefficient**
 (`|A ∩ B| / min(|A|,|B|)`); below that there are no trigrams to compare, so scoring falls back to

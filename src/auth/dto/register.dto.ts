@@ -12,8 +12,14 @@ import {
   Min,
   Max,
 } from 'class-validator';
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import { Gender, Madhab } from '@prisma/client';
+import {
+  CITY_MAX_LENGTH,
+  COUNTRY_MAX_LENGTH,
+  PLACE_NAME_PATTERN,
+} from '../constants/location.constants';
+import { trimPlaceName } from '../utils/place-name.util';
 import {
   PASSWORD_COMPLEXITY_MESSAGE,
   PASSWORD_MAX_LENGTH,
@@ -51,13 +57,17 @@ export class RegisterDto {
   gender: Gender;
 
   @IsString()
+  @Transform(trimPlaceName)
   @IsNotEmpty({ message: 'COUNTRY_REQUIRED' })
-  @MaxLength(64)
+  @MaxLength(COUNTRY_MAX_LENGTH, { message: 'INVALID_COUNTRY' })
+  @Matches(PLACE_NAME_PATTERN, { message: 'INVALID_COUNTRY' })
   country: string;
 
   @IsString()
+  @Transform(trimPlaceName)
   @IsNotEmpty({ message: 'CITY_REQUIRED' })
-  @MaxLength(85)
+  @MaxLength(CITY_MAX_LENGTH, { message: 'INVALID_CITY' })
+  @Matches(PLACE_NAME_PATTERN, { message: 'INVALID_CITY' })
   city: string;
 
   @Type(() => Number)

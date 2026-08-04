@@ -31,7 +31,7 @@ export class WorshipResponseMapper {
         time: DateTime.fromJSDate(entry.time.toJSDate(), { zone: timezone }).toFormat('HH:mm'),
         iso: entry.time.toISO(),
         remainingSeconds: this.countdownService.secondsUntil(occurrence, now),
-        isNext: !nextPrayer.isTomorrow && nextPrayer.name === entry.key,
+        isNext: nextPrayer.time > now && nextPrayer.name === entry.key,
         isPassed: entry.time <= now,
       };
 

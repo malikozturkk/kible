@@ -141,6 +141,7 @@ gamification, social follow graph, and account/consent management.
 | Dates        | `luxon` + `tz-lookup`; Hijri via `Intl` `islamic-umalqura` calendar        |
 | Email        | Mailjet (`node-mailjet`) with template IDs                                 |
 | Validation   | `class-validator` / `class-transformer`                                    |
+| HTTP headers | `helmet` (applied in `src/common/security/security-headers.ts`)            |
 | Package mgr  | **yarn** (`yarn.lock` is committed — do not introduce `package-lock.json`) |
 
 ## Commands
@@ -178,12 +179,13 @@ prisma/
 src/
   main.ts                     # bootstrap: CORS, ValidationPipe, interceptor, filter, listen()
   app.module.ts               # composition root
-  common/                     # response envelope, exception filter, LocalDate, timezone util, throttler
+  common/                     # response envelope, exception filter, LocalDate, timezone util, throttler,
+                              # security headers (helmet), trust-proxy util, shared validators
   prisma/                     # @Global PrismaModule + PrismaService
   auth/                       # register/login/refresh/logout, profile, password reset, follow
   otp/                        # registration OTP; the user row is created here, not in auth
   email/                      # Mailjet wrapper
-  consent/                    # ToS / privacy-policy versioning + global ConsentGuard
+  consent/                    # ToS / privacy-policy versioning + ConsentGuard (via JwtAuthGuard)
   users/                      # user search, public/self stats
   worship/                    # prayer times, countdowns, fasting + day progress
   gamification/               # daily prayer slots, quiz, completion, XP, streak
@@ -290,6 +292,24 @@ are warnings. Run `yarn lint` before finishing.
   `AppThrottlerModule`) **plus** a per-account lockout in `LoginAttemptService`. Neither is
   sufficient alone. Do not move the throttler back into a feature module — it was private to
   `ConsentModule`, which is why nothing else was protected.
+- **`JwtAuthGuard` is also the consent gate.** It authenticates via Passport and then delegates to
+  `ConsentGuard`, so every route behind it returns **403 `CONSENT_REQUIRED`** while a required
+  document version is unaccepted. `ConsentGuard` used to be an `APP_GUARD`, which runs _before_
+  route guards — `req.user` was unset, its `if (!userId) return true` fired, and the gate never
+  blocked anything. Do not move it back to `APP_GUARD`, and put new protected routes behind
+  `JwtAuthGuard` so they inherit the gate. `ConsentModule` is `@Global()` and exports `ConsentGuard`
+  for this reason.
+- **Rate limiting depends on `TRUST_PROXY`.** `@nestjs/throttler` keys on `req.ip`; behind a proxy
+  that is the proxy's address unless Express `trust proxy` is set, which collapses every user into
+  one global bucket. `main.ts` sets it from `TRUST_PROXY` (hop count or trusted IP/CIDR list); empty
+  means trust nothing, which is the safe default — enabling it without a proxy in front lets clients
+  spoof `X-Forwarded-For` and reset their own limit.
+- **A calendar date parameter is `@IsCalendarDate()`**, not a regex. `^\d{4}-\d{2}-\d{2}$` accepts
+  `2026-13-45` and `2026-02-30`, which reach Luxon/adhan and throw uncaught → 500. Use the shared
+  validator in `src/common/validators/` for any new date query param.
+- **`city` / `country` are validated, not just length-capped.** `PLACE_NAME_PATTERN` in
+  `src/auth/constants/location.constants.ts` is the one place the rule lives; register and profile
+  update both use it. `city` is shown to strangers in the leaderboard, so it is untrusted input.
 - **Access tokens are revocable.** Each carries a `tv` claim equal to
   `user_credentials.tokenVersion`; `JwtStrategy` rejects a mismatch. Any change that must end every
   session increments that counter — revoking refresh tokens alone leaves issued access tokens
@@ -316,12 +336,11 @@ These are verified facts about the current tree, not bugs to fold into an unrela
   Prisma default for `User.madhab` is `SHAFI`. Don't assume the constant is authoritative.
 - `RegisterDto.termsAccepted` / `privacyPolicyAccepted` are validated as `Equals(true)` but never
   read by `AuthService.register()` — the recorded consent versions come from the env config instead.
-- **`ConsentGuard` very likely never blocks.** It is registered as `APP_GUARD`, and in NestJS global
-  guards run _before_ controller/route-scoped guards — so `req.user` is still unset when it runs and
-  the `if (!userId) return true;` early-exit fires. _Inferred from framework ordering semantics, not
-  verified at runtime._ Verify before relying on it, and before changing it.
 - `User.gender` does not exist; gender lives on `user_avatar_configs` (and transiently on
   `otp_verifications`).
+- Throttler storage is the in-memory default, so limits are **per instance**. Running more than one
+  replica multiplies every limit by the replica count. A shared (Redis) storage backend is the fix
+  and is not built.
 - CORS allows exactly one origin, taken from `FRONTEND_BASE_URL` (trailing slashes stripped) and
   defaulting to `http://localhost:3000` in `src/main.ts`. That variable also builds the
   password-reset link, so it must stay a bare `scheme://host:port`; there is no list/regex support,
