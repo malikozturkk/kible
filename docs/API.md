@@ -819,3 +819,35 @@ Errors:
 > The guide check and the gamification quiz now share one table (`prayer_questions`, discriminated
 > by `scope`) but remain separate **flows**: the guide check awards no XP, records no completion,
 > and has no session tables. `PrayerQuizSubmission` / `PrayerQuizQuestion` stay quiz-session-only.
+
+---
+
+## Telemetry — `src/telemetry/telemetry.controller.ts`
+
+### `POST /telemetry/client-errors` — — · `202` · throttled 10 req/min
+
+Ingests a browser-side error report from the frontend and writes it to the server log as an
+`error`-level `CLIENT_ERROR` line (see `ARCHITECTURE.md` → Logging). Nothing is stored in the
+database; the response body is the envelope with `data: null`.
+
+```json
+{
+  "message": "x is not a function",
+  "source": "window_error",
+  "stack": "TypeError: x is not a function\n  at …",
+  "url": "/worship",
+  "digest": "1234567890"
+}
+```
+
+| Field     | Rules                                                                                                                  |
+| --------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `message` | required, ≤ 500 chars                                                                                                  |
+| `source`  | required, one of `window_error` `unhandled_rejection` `react_render_error`                                             |
+| `stack`   | optional, ≤ 8000 chars                                                                                                 |
+| `url`     | optional, ≤ 300 chars — the frontend sends the **path only** (no query/hash), so URL-borne tokens never reach the logs |
+| `digest`  | optional, ≤ 100 chars — Next.js production error digest                                                                |
+
+**No authentication** — client errors also occur for logged-out users and during broken auth flows;
+the per-IP throttle is the abuse boundary. The `User-Agent` header is logged alongside the report.
+Errors: `400 VALIDATION_ERROR` (missing/oversized/unknown fields), `429 TOO_MANY_REQUESTS`.

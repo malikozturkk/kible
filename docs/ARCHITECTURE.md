@@ -6,13 +6,17 @@ lives. Endpoint details are in [`API.md`](API.md); business rules are in [`DOMAI
 ## Bootstrap (`src/main.ts`)
 
 ```ts
-NestFactory.create(AppModule)
+NestFactory.create(AppModule, { bufferLogs: true })
+  .useLogger(app.get(Logger))          // nestjs-pino — every Nest Logger call becomes a pino line
   .enableCors({ origin: FRONTEND_BASE_URL ?? 'http://localhost:3000', credentials: true, … })
   .useGlobalPipes(new ValidationPipe({ whitelist, forbidNonWhitelisted, transform }))
   .useGlobalInterceptors(new ResponseInterceptor())
   .useGlobalFilters(new GlobalExceptionFilter())
   .listen(process.env.PORT ?? 3000)
 ```
+
+`bufferLogs: true` holds early bootstrap logs until `useLogger` swaps in the pino logger, so even
+boot-time messages come out as structured JSON.
 
 The CORS origin comes from `FRONTEND_BASE_URL` (trailing slashes stripped) and falls back to
 `http://localhost:3000` when unset — a single origin, not a list. The same variable also builds the
@@ -22,11 +26,13 @@ password-reset link, so it must stay a bare `scheme://host:port`. The port falls
 
 ## Module graph
 
-`AppModule` imports seven modules; two more join the graph transitively.
+`AppModule` imports eleven modules; two more join the graph transitively.
 
 ```
 AppModule
 ├─ ConfigModule.forRoot({ isGlobal: true, load: [consentConfig] })
+├─ AppLoggingModule        nestjs-pino LoggerModule.forRoot — see “Logging” below
+├─ AppThrottlerModule      @Global — exports ThrottlerModule, see “Rate limiting”
 ├─ ScheduleModule.forRoot()
 ├─ PrismaModule            @Global — exports PrismaService everywhere
 ├─ AuthModule
@@ -41,9 +47,10 @@ AppModule
 │  └─ QuestionsModule      → QuestionsController is registered through this import
 ├─ WorshipModule
 ├─ UsersModule
+├─ LeaderboardModule
+├─ TelemetryModule         POST /telemetry/client-errors → pino error log
 └─ ConsentModule
    ├─ CacheModule.register()      non-global, in-memory
-   ├─ ThrottlerModule.forRoot([{ ttl: 60_000, limit: 10 }])
    └─ ConsentGuard                @Global + exported, injected by JwtAuthGuard
 ```
 
@@ -61,6 +68,7 @@ still mounted because the modules are reachable through `AuthModule` and `Guides
 
 ```
 HTTP request
+  → pino-http assigns a request id (X-Request-Id) and logs completion — every request, success or not
   → trust proxy (req.ip resolved from X-Forwarded-For when TRUST_PROXY is set)
   → helmet + Permissions-Policy (src/common/security/security-headers.ts)
   → CORS
@@ -130,6 +138,39 @@ deployment needs a shared (Redis) storage backend — not built.
 
 Because prose messages are discarded, always throw with a key.
 
+The filter also **logs** what it swallows: any exception that is not an `HttpException`, and any
+`HttpException` with status ≥ 500, is logged at `error` level with its stack trace plus the request
+method, URL and request id. `BusinessException` and 4xx responses are deliberately not logged here —
+they are expected flow and already appear in the pino access log as `warn` lines. Behavior is pinned
+by `src/common/filters/http-exception.filter.spec.ts`.
+
+### Logging — `src/common/logging/`
+
+`AppLoggingModule` registers `nestjs-pino`'s `LoggerModule.forRoot` and `main.ts` routes Nest's
+`Logger` through it, so **all** log output — bootstrap, feature services, the exception filter, the
+HTTP access log — is one structured JSON stream on stdout (pretty-printed via `pino-pretty` when
+`NODE_ENV !== 'production'`).
+
+- **Every request is logged on completion** (pino-http), including successful ones: method, URL,
+  status, duration, remote address, and `userId` when the request was authenticated. Level is `info`
+  for 2xx/3xx, `warn` for 4xx, `error` for 5xx.
+- **Request ids.** Each request gets a UUID (an incoming `X-Request-Id` is honored only if it
+  matches `^[\w.-]{1,64}$`), is echoed back as `X-Request-Id`, and appears on every log line of that
+  request — including `CLIENT_ERROR` lines from `/telemetry/client-errors`.
+- **No personal data beyond need (KVKK).** Serializers are slimmed so headers and request/response
+  bodies are never logged; `redact` additionally censors `authorization`, `cookie` and password- or
+  token-shaped body fields as defense in depth. The IP address and pseudonymous `userId` are logged
+  for abuse handling — keep log retention short in production.
+- **Level** comes from `LOG_LEVEL` (optional), defaulting to `info` in production and `debug`
+  otherwise.
+- **Client errors.** `TelemetryModule` (`src/telemetry/`) exposes `POST /telemetry/client-errors`
+  (unauthenticated, 10 req/min per IP) and `TelemetryService` writes each report as an `error`-level
+  `CLIENT_ERROR` line — the frontend's error boundaries and window listeners feed it. See
+  [`API.md`](API.md#telemetry--srctelemetrytelemetrycontrollerts).
+
+There is no external APM/error tracker; stdout JSON is the single source. Point log shipping (or
+plain `grep`) at it.
+
 ### Persistence — `src/prisma/`
 
 `PrismaService extends PrismaClient` and is registered by the `@Global` `PrismaModule`. It builds a
@@ -171,12 +212,11 @@ Two `@Cron(CronExpression.EVERY_MINUTE)` sweepers, enabled by `ScheduleModule.fo
 
 Both run in every process — running multiple replicas means duplicated (idempotent) deletes.
 
-### Caching and rate limiting
+### Caching
 
-Only the consent module uses them: a non-global in-memory `CacheModule` caches each user's latest
-consent per type for 30 s under the key `consent:<userId>` (invalidated on accept), and
-`ThrottlerModule` limits `POST /consent/accept` to 10 requests per minute. No other endpoint is
-rate-limited, including login, register and password reset.
+Only the consent module caches: a non-global in-memory `CacheModule` caches each user's latest
+consent per type for 30 s under the key `consent:<userId>` (invalidated on accept). Rate limiting is
+global — see [Rate limiting](#rate-limiting) below.
 
 ## Notable design patterns
 
@@ -230,6 +270,7 @@ frontend maps to "Çok fazla deneme yaptın. Lütfen biraz bekle."
 | `POST /auth/reset-password`, `/validate-reset-token`, `/resume-registration` | 5 / minute  |
 | `POST /auth/refresh`                                                         | 20 / minute |
 | `POST /consent/accept`                                                       | 10 / minute |
+| `POST /telemetry/client-errors`                                              | 10 / minute |
 
 The IP throttle is paired with a per-account lockout in `LoginAttemptService` — see
 [`DOMAIN.md` §8](DOMAIN.md#brute-force-protection). Storage is in-memory, so limits reset on restart

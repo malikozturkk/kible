@@ -13,6 +13,8 @@ import { ConsentModule } from './consent/consent.module';
 import { consentConfig } from './config/consent.config';
 import { LeaderboardModule } from './leaderboard/leaderboard.module';
 import { AppThrottlerModule } from './common/throttler/throttler.module';
+import { AppLoggingModule } from './common/logging/logging.module';
+import { TelemetryModule } from './telemetry/telemetry.module';
 
 @Module({
   imports: [
@@ -20,6 +22,7 @@ import { AppThrottlerModule } from './common/throttler/throttler.module';
       isGlobal: true,
       load: [consentConfig],
     }),
+    AppLoggingModule,
     AppThrottlerModule,
     PrismaModule,
     AuthModule,
@@ -29,6 +32,7 @@ import { AppThrottlerModule } from './common/throttler/throttler.module';
     UsersModule,
     ConsentModule,
     LeaderboardModule,
+    TelemetryModule,
     ScheduleModule.forRoot(),
   ],
   controllers: [AppController],

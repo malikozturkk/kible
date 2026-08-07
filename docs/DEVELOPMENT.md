@@ -38,6 +38,7 @@ when debugging a boot error.
 | `PEPPER`                                       | password hashing                                       | silently hashes `password + "undefined"` — **all hashes become wrong**                  |
 | `FRONTEND_BASE_URL`                            | password-reset link **and** the CORS origin            | link becomes `undefined/reset-password?...`; CORS falls back to `http://localhost:3000` |
 | `TRUST_PROXY`                                  | Express `trust proxy` → the IP the throttler keys on   | **optional**; empty = trust nothing. See below                                          |
+| `LOG_LEVEL`                                    | pino log level (`trace`…`fatal`)                       | **optional**; defaults to `info` when `NODE_ENV=production`, otherwise `debug`          |
 | `CONSENT_VERSION_TERMS_OF_SERVICE`             | `consentConfig`                                        | **throws at boot**: `CONSENT_VERSIONS_NOT_CONFIGURED`                                   |
 | `CONSENT_VERSION_PRIVACY_POLICY`               | `consentConfig`                                        | same                                                                                    |
 | `MAILJET_API_KEY` / `MAILJET_API_SECRET`       | `EmailService`                                         | OTP and reset emails fail at send time                                                  |

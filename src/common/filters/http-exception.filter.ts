@@ -1,5 +1,12 @@
-import { ExceptionFilter, Catch, ArgumentsHost, HttpException, HttpStatus } from '@nestjs/common';
-import { Response } from 'express';
+import {
+  ExceptionFilter,
+  Catch,
+  ArgumentsHost,
+  HttpException,
+  HttpStatus,
+  Logger,
+} from '@nestjs/common';
+import { Request, Response } from 'express';
 import { ApiResponse } from '../interfaces/api-response.interface.js';
 import { BusinessException } from '../exceptions/business.exception.js';
 
@@ -17,9 +24,12 @@ const DEFAULT_MESSAGE_KEYS: Record<number, string> = {
 
 @Catch()
 export class GlobalExceptionFilter implements ExceptionFilter {
+  private readonly logger = new Logger(GlobalExceptionFilter.name);
+
   catch(exception: unknown, host: ArgumentsHost) {
     const ctx = host.switchToHttp();
     const response = ctx.getResponse<Response>();
+    const request = ctx.getRequest<Request>();
 
     let httpStatus = HttpStatus.INTERNAL_SERVER_ERROR;
     let messageKey = 'INTERNAL_SERVER_ERROR';
@@ -49,6 +59,8 @@ export class GlobalExceptionFilter implements ExceptionFilter {
       }
     }
 
+    this.logUnexpected(exception, httpStatus, request);
+
     const errorResponse: ApiResponse = {
       date: Date.now(),
       success: false,
@@ -61,6 +73,22 @@ export class GlobalExceptionFilter implements ExceptionFilter {
     };
 
     response.status(httpStatus).json(errorResponse);
+  }
+
+  private logUnexpected(exception: unknown, httpStatus: number, request: Request) {
+    if (exception instanceof BusinessException) return;
+    if (exception instanceof HttpException && httpStatus < 500) {
+      return;
+    }
+
+    const requestId = typeof request.id === 'string' ? request.id : undefined;
+    const context = `${request.method} ${request.url}${requestId ? ` reqId=${requestId}` : ''}`;
+
+    if (exception instanceof Error) {
+      this.logger.error(`${context} → ${httpStatus} ${exception.message}`, exception.stack);
+    } else {
+      this.logger.error(`${context} → ${httpStatus} non-Error thrown: ${String(exception)}`);
+    }
   }
 
   private normalizeMessageKey(message: string, httpStatus: number): string {

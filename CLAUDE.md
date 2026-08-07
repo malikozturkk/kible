@@ -142,6 +142,7 @@ gamification, social follow graph, and account/consent management.
 | Email        | Mailjet (`node-mailjet`) with template IDs                                 |
 | Validation   | `class-validator` / `class-transformer`                                    |
 | HTTP headers | `helmet` (applied in `src/common/security/security-headers.ts`)            |
+| Logging      | `nestjs-pino` (pino) — structured JSON, request logs, request ids          |
 | Package mgr  | **yarn** (`yarn.lock` is committed — do not introduce `package-lock.json`) |
 
 ## Commands
@@ -155,7 +156,7 @@ yarn start:dev                # watch mode, listens on $PORT (default 3000)
 yarn lint                     # eslint --fix
 yarn format                   # prettier --write .
 yarn build                    # nest build
-yarn test                     # jest (only one spec exists today)
+yarn test                     # jest (two specs: app.controller, http-exception.filter)
 yarn prisma:generate          # regenerate client after schema.prisma changes
 yarn prisma:seed              # fill both question banks (idempotent, see docs/DEVELOPMENT.md)
 yarn prisma:studio
@@ -180,7 +181,8 @@ src/
   main.ts                     # bootstrap: CORS, ValidationPipe, interceptor, filter, listen()
   app.module.ts               # composition root
   common/                     # response envelope, exception filter, LocalDate, timezone util, throttler,
-                              # security headers (helmet), trust-proxy util, shared validators
+                              # security headers (helmet), trust-proxy util, shared validators,
+                              # logging/ (nestjs-pino config: request logs, request ids, redaction)
   prisma/                     # @Global PrismaModule + PrismaService
   auth/                       # register/login/refresh/logout, profile, password reset, follow
   otp/                        # registration OTP; the user row is created here, not in auth
@@ -192,6 +194,7 @@ src/
   leaderboard/                # XP / streak / prayer-count rankings (metric × scope × period)
   guides/                     # static step-by-step wudu/ghusl/prayer guides (strategy pattern)
   questions/                  # guide-quiz check (shares the question bank, scope = GUIDE)
+  telemetry/                  # POST /telemetry/client-errors — frontend error reports → error log
   config/consent.config.ts    # fails fast if consent version env vars are missing
 ```
 
@@ -226,6 +229,13 @@ collapse to `VALIDATION_ERROR` with the joined details in `attachment`.
 Use `BusinessException(messageKey, httpStatus, attachment?)` from `src/common/exceptions/` for
 domain errors; built-in Nest exceptions (`NotFoundException('USER_NOT_FOUND')`) are also used and
 work fine. Both styles exist in the codebase — match the surrounding file.
+
+**Logging.** All output is one structured pino stream (`AppLoggingModule`, wired in `main.ts` via
+`useLogger`). Use Nest's `Logger` (or `PinoLogger`) — never `console.log`. Every request is already
+access-logged with a request id, and `GlobalExceptionFilter` logs any 5xx/unexpected exception with
+its stack — do not add ad-hoc catch-and-log around expected domain errors. **Never log secrets,
+tokens, passwords, emails or request bodies**; serializers deliberately drop headers/bodies and
+`LOG_LEVEL` is the only tuning knob (optional env).
 
 **Validation.** The global `ValidationPipe` runs with `whitelist: true`,
 `forbidNonWhitelisted: true`, `transform: true`. Any field not declared on the DTO makes the request
@@ -346,7 +356,8 @@ These are verified facts about the current tree, not bugs to fold into an unrela
   password-reset link, so it must stay a bare `scheme://host:port`; there is no list/regex support,
   so a second frontend origin needs a code change. The port is configurable via `PORT`, defaulting
   to `3000`.
-- Test coverage is effectively nil: `src/app.controller.spec.ts` is the only spec.
+- Test coverage is effectively nil: `src/app.controller.spec.ts` and
+  `src/common/filters/http-exception.filter.spec.ts` are the only specs.
 
 ## Safety notes
 
