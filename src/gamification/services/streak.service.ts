@@ -1,5 +1,5 @@
 import { HttpStatus, Injectable } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { Prisma, UserStreak } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BusinessException } from '../../common/exceptions/business.exception';
 import { LocalDate } from '../../common/utils/local-date';
@@ -61,6 +61,7 @@ export class StreakService {
     let nextStreak: number;
     let streakAdvanced: boolean;
     let streakReset = false;
+    let recoveryFields: { recoverableStreak: number; brokenSinceDate: Date | null } | undefined;
 
     if (!lastActive) {
       nextStreak = 1;
@@ -81,6 +82,10 @@ export class StreakService {
         nextStreak = 1;
         streakAdvanced = true;
         streakReset = streak.currentStreak > 0;
+        recoveryFields =
+          streakReset && gap <= STREAK_FREEZE_MAX_GAP_DAYS
+            ? { recoverableStreak: streak.currentStreak, brokenSinceDate: streak.lastActiveDate }
+            : { recoverableStreak: 0, brokenSinceDate: null };
       }
     }
 
@@ -92,6 +97,7 @@ export class StreakService {
         currentStreak: nextStreak,
         longestStreak,
         lastActiveDate: today.toUtcMidnight(),
+        ...recoveryFields,
       },
     });
 
@@ -121,7 +127,7 @@ export class StreakService {
         const gap = lastActive.daysUntil(today);
 
         if (gap <= 1) {
-          throw new BusinessException('STREAK_NOT_AT_RISK', HttpStatus.CONFLICT);
+          return this.recoverMergedStreak(tx, streak, lastActive, today);
         }
         if (gap > STREAK_FREEZE_MAX_GAP_DAYS) {
           throw new BusinessException('STREAK_FREEZE_WINDOW_EXPIRED', HttpStatus.CONFLICT);
@@ -166,6 +172,8 @@ export class StreakService {
             data: {
               streakFreezeCount: streak.streakFreezeCount - 1,
               lastActiveDate: today.minusDays(1).toUtcMidnight(),
+              recoverableStreak: 0,
+              brokenSinceDate: null,
             },
           });
         }
@@ -182,6 +190,68 @@ export class StreakService {
       },
       { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
     );
+  }
+
+  private async recoverMergedStreak(
+    tx: Prisma.TransactionClient,
+    streak: UserStreak,
+    lastActive: LocalDate,
+    today: LocalDate,
+  ): Promise<StreakFreezeUsageResultDto> {
+    if (streak.recoverableStreak <= 0 || !streak.brokenSinceDate) {
+      throw new BusinessException('STREAK_NOT_AT_RISK', HttpStatus.CONFLICT);
+    }
+
+    const brokenSince = LocalDate.fromPersisted(streak.brokenSinceDate);
+    if (brokenSince.daysUntil(today) > STREAK_FREEZE_MAX_GAP_DAYS) {
+      throw new BusinessException('STREAK_FREEZE_WINDOW_EXPIRED', HttpStatus.CONFLICT);
+    }
+    if (streak.streakFreezeCount < 1) {
+      throw new BusinessException('NO_STREAK_FREEZE_AVAILABLE', HttpStatus.CONFLICT);
+    }
+
+    const restartDay = lastActive.minusDays(streak.currentStreak - 1);
+    const protectedDays: LocalDate[] = [];
+    for (let day = brokenSince.plusDays(1); day.daysUntil(restartDay) > 0; day = day.plusDays(1)) {
+      protectedDays.push(day);
+    }
+
+    for (const day of protectedDays) {
+      await tx.streakFreezeUsage.upsert({
+        where: {
+          userId_protectedDate: {
+            userId: streak.userId,
+            protectedDate: day.toUtcMidnight(),
+          },
+        },
+        update: {},
+        create: {
+          userId: streak.userId,
+          protectedDate: day.toUtcMidnight(),
+          reason: 'USER_INITIATED',
+        },
+      });
+    }
+
+    const mergedStreak = streak.recoverableStreak + streak.currentStreak;
+    const updated = await tx.userStreak.update({
+      where: { userId: streak.userId },
+      data: {
+        currentStreak: mergedStreak,
+        longestStreak: Math.max(streak.longestStreak, mergedStreak),
+        streakFreezeCount: streak.streakFreezeCount - 1,
+        recoverableStreak: 0,
+        brokenSinceDate: null,
+      },
+    });
+
+    return {
+      currentStreak: updated.currentStreak,
+      longestStreak: updated.longestStreak,
+      freezesRemaining: updated.streakFreezeCount,
+      protectedDates: protectedDays.map((d) => d.toISO()),
+      alreadyApplied: false,
+    };
   }
 
   async lockStreakRow(tx: Prisma.TransactionClient, userId: string): Promise<void> {

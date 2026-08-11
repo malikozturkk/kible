@@ -450,9 +450,9 @@ caller's own timezone (resolved from their coordinates) to decide what "today" i
   "lastActiveDate": "2026-07-31",
   "daysSinceLastActive": 2,
   "isBroken": true,
-  "recoverableStreak": 7, // what a freeze would give back; 0 when nothing is broken
+  "recoverableStreak": 7, // what a freeze would give back; nonzero also after a restart while the stored recovery's window is open
   "atRisk": false, // true when gap === 1: alive, but breaks at local midnight
-  "canFreezeNow": true, // isBroken && within the 3-day window && freezesAvailable > 0
+  "canFreezeNow": true, // a freeze would succeed now: (broken && within the 3-day window) || open stored recovery — and freezesAvailable > 0
   "freezeWindowExpired": false,
   "lastFreezeUsedAt": null, // most recent protected day, or null
 }
@@ -614,9 +614,14 @@ Errors: `QUIZ_NOT_FOUND` (404), `QUIZ_QUESTION_NOT_FOUND` (404), `QUIZ_QUESTION_
 }
 ```
 
-Errors: `STREAK_NOT_FOUND` (404), `STREAK_NOT_AT_RISK` (409 — gap ≤ 1 day),
-`STREAK_FREEZE_WINDOW_EXPIRED` (409 — gap > 3 days), `NO_STREAK_FREEZE_AVAILABLE` (409),
-`UNKNOWN_GAMIFICATION_ACTION` (400).
+When the streak is broken (gap 2–3 days) the freeze protects the missed days and keeps the streak
+running. When the user already restarted (gap ≤ 1) but a stored recovery exists, the freeze restores
+the broken streak and **merges** it into the running one (`currentStreak` in the response is the
+merged total). See [`DOMAIN.md` §5](DOMAIN.md#5-streaks).
+
+Errors: `STREAK_NOT_FOUND` (404), `STREAK_NOT_AT_RISK` (409 — gap ≤ 1 day and no stored recovery),
+`STREAK_FREEZE_WINDOW_EXPIRED` (409 — more than 3 days since the broken streak's last active day),
+`NO_STREAK_FREEZE_AVAILABLE` (409), `UNKNOWN_GAMIFICATION_ACTION` (400).
 
 > No code path ever grants a freeze (`streakFreezeCount` is only decremented), so in practice this
 > returns `NO_STREAK_FREEZE_AVAILABLE` unless the row is edited directly.

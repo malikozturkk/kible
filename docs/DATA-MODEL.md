@@ -143,8 +143,11 @@ indexed for a future leaderboard.
 ### `UserStreak` → `user_streaks`
 
 `currentStreak`, `longestStreak`, `streakFreezeCount`, `lastActiveDate` (a `DateTime?` holding UTC
-midnight of a local day). Indexed on `currentStreak`. This is the row locked with
-`SELECT … FOR UPDATE` during completion and freeze.
+midnight of a local day), plus the recovery pair `recoverableStreak` / `brokenSinceDate`
+(`@db.Date`) — written by the daily-activity reset when it overwrites a broken streak whose freeze
+window is still open, consumed and cleared by the freeze's recovery branch (see `docs/DOMAIN.md`).
+Indexed on `currentStreak`. This is the row locked with `SELECT … FOR UPDATE` during completion and
+freeze.
 
 ### `StreakFreezeUsage` → `streak_freeze_usages`
 
@@ -262,7 +265,10 @@ both defaulting to 0 so every existing user keeps one change | | `20260802120000
 `failedLoginAttempts` / `lockedUntil` on `user_credentials`; `usernameUpdatedAt` on `users` (null =
 never renamed, so nobody is retroactively inside the rename cooldown) | |
 `20260802130000_token_version` | `tokenVersion` on `user_credentials`, default 0 — matching the `tv`
-claim's fallback, so tokens issued before this shipped keep validating | | Note that `schema.prisma`
-declares `datasource db { provider = "postgresql" }` with **no `url`** — the connection string is
-supplied by [`prisma.config.ts`](../prisma.config.ts), which reads `DATABASE_URL` after loading
-`.env`. Prisma CLI commands therefore work without a `url` in the schema.
+claim's fallback, so tokens issued before this shipped keep validating | |
+`20260809090333_streak_recovery` | `recoverableStreak` (default 0) / `brokenSinceDate` (`date`,
+null) on `user_streaks` — the stored recovery pair a restart writes and the freeze's recovery branch
+consumes | | Note that `schema.prisma` declares `datasource db { provider = "postgresql" }` with
+**no `url`** — the connection string is supplied by [`prisma.config.ts`](../prisma.config.ts), which
+reads `DATABASE_URL` after loading `.env`. Prisma CLI commands therefore work without a `url` in the
+schema.

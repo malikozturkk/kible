@@ -6,6 +6,8 @@ export interface StreakSnapshot {
   longestStreak: number;
   streakFreezeCount: number;
   lastActiveDate: Date | null;
+  recoverableStreak?: number;
+  brokenSinceDate?: Date | null;
 }
 
 export interface StreakStatus {
@@ -60,15 +62,29 @@ export function evaluateStreakStatus(
   const isBroken = gap >= 2;
   const freezeWindowExpired = isBroken && gap > STREAK_FREEZE_MAX_GAP_DAYS;
 
+  const brokenSince = snapshot.brokenSinceDate
+    ? LocalDate.fromPersisted(snapshot.brokenSinceDate)
+    : null;
+  const storedRecoveryOpen =
+    !isBroken &&
+    (snapshot.recoverableStreak ?? 0) > 0 &&
+    brokenSince !== null &&
+    brokenSince.daysUntil(today) <= STREAK_FREEZE_MAX_GAP_DAYS;
+
   return {
     ...base,
     currentStreak: isBroken ? 0 : snapshot.currentStreak,
     lastActiveDate: lastActive.toISO(),
     daysSinceLastActive: gap,
     isBroken,
-    recoverableStreak: isBroken ? snapshot.currentStreak : 0,
+    recoverableStreak: isBroken
+      ? snapshot.currentStreak
+      : storedRecoveryOpen
+        ? (snapshot.recoverableStreak ?? 0)
+        : 0,
     atRisk: gap === 1,
-    canFreezeNow: isBroken && !freezeWindowExpired && snapshot.streakFreezeCount > 0,
+    canFreezeNow:
+      snapshot.streakFreezeCount > 0 && ((isBroken && !freezeWindowExpired) || storedRecoveryOpen),
     freezeWindowExpired,
   };
 }

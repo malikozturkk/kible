@@ -263,6 +263,8 @@ model UserStreak {
   longestStreak     Int      @default(0)
   streakFreezeCount Int      @default(0)
   lastActiveDate    DateTime?
+  recoverableStreak Int      @default(0)
+  brokenSinceDate   DateTime? @db.Date
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 

@@ -288,16 +288,23 @@ punctuality affects XP only, never the streak.
 path therefore passes the row through `evaluateStreakStatus()`
 (`src/gamification/domain/streak-status.ts`), which derives what the user actually has right now:
 
-| `gap` | `currentStreak` returned | `isBroken` | `atRisk` | `recoverableStreak` |
-| ----- | ------------------------ | ---------- | -------- | ------------------- |
-| ≤ 0   | stored value             | false      | false    | 0                   |
-| 1     | stored value             | false      | **true** | 0                   |
-| ≥ 2   | **0**                    | **true**   | false    | stored value        |
+| `gap` | `currentStreak` returned | `isBroken` | `atRisk` | `recoverableStreak`                                 |
+| ----- | ------------------------ | ---------- | -------- | --------------------------------------------------- |
+| ≤ 0   | stored value             | false      | false    | stored `recoverableStreak` while its window is open |
+| 1     | stored value             | false      | **true** | stored `recoverableStreak` while its window is open |
+| ≥ 2   | **0**                    | **true**   | false    | stored `currentStreak`                              |
 
 So a broken streak reads as `0` the moment the user opens the app — it does **not** wait for the
 next completion to be materialised. The stored value survives untouched so that a freeze can still
 restore it; `recoverableStreak` is exactly what a freeze would give back. `atRisk` means the streak
 is still alive but will break at local midnight unless a prayer is marked today.
+
+In the `gap ≤ 1` rows the value comes from the persisted `user_streaks.recoverableStreak` /
+`brokenSinceDate` pair, written when a restart overwrote a broken streak (see below). Its window is
+open while `brokenSinceDate.daysUntil(today) ≤ STREAK_FREEZE_MAX_GAP_DAYS` (3); after that the pair
+is ignored (and overwritten by the next reset). `canFreezeNow` is true whenever a freeze would
+succeed right now: broken-and-inside-the-window, **or** not broken but with an open stored recovery
+— in both cases only if `freezesAvailable > 0`.
 
 `UserStatsService` (both `/users/me/stats` and `/users/:username/stats`) resolves the viewed user's
 timezone from their coordinates and applies the same function, so profile pages never show a stale
@@ -312,15 +319,22 @@ streak.
 | 1                   | `currentStreak + 1`, advanced                                                 |
 | > 1                 | **reset to 1**, advanced (and `streakReset = true` if the old streak was > 0) |
 
+A reset does not burn the recovery option: when the old streak was > 0 and the freeze window is
+still open (`gap ≤ 3`), the reset stores the old value in `recoverableStreak` and the old
+`lastActiveDate` in `brokenSinceDate` before overwriting, so a later freeze can restore and merge
+it. When the window is already past, both fields are cleared instead.
+
 `streakReset` is surfaced on the completion response (`PrayerCompletionResultDto.streakReset`).
 
 `longestStreak = max(longestStreak, currentStreak)`.
 
 ### Streak freeze — `POST /gamification/action`
 
-Repairs a gap retroactively. Runs at `Serializable` isolation behind the row lock.
+Repairs a gap retroactively. Runs at `Serializable` isolation behind the row lock. Two branches,
+picked by the current `gap`:
 
-- `gap ≤ 1` → `STREAK_NOT_AT_RISK` (409)
+**Broken branch (`gap` 2…3)** — the streak is broken and nothing was completed since:
+
 - `gap > STREAK_FREEZE_MAX_GAP_DAYS` (3) → `STREAK_FREEZE_WINDOW_EXPIRED` (409)
 - `streakFreezeCount < 1` → `NO_STREAK_FREEZE_AVAILABLE` (409)
 
@@ -331,6 +345,20 @@ it. Note the current streak number itself is not incremented for the frozen days
 
 Re-running when every day is already protected is idempotent: `alreadyApplied: true`, nothing is
 charged.
+
+**Recovery branch (`gap ≤ 1`)** — the user already restarted (completing a prayer after a break
+resets the streak to 1 but stores the broken value, see above). The freeze then restores the stored
+streak and merges it into the running one:
+
+- no stored `recoverableStreak`/`brokenSinceDate` pair → `STREAK_NOT_AT_RISK` (409)
+- `brokenSinceDate.daysUntil(today) > 3` → `STREAK_FREEZE_WINDOW_EXPIRED` (409)
+- `streakFreezeCount < 1` → `NO_STREAK_FREEZE_AVAILABLE` (409)
+
+On success it protects the missed days (`brokenSinceDate+1` up to the day the running streak
+started, exclusive), sets `currentStreak = recoverableStreak + currentStreak`, updates
+`longestStreak`, charges one freeze, and clears the stored pair. The two orders are therefore
+equivalent: a 4-day streak broken yesterday ends at **5** whether the user freezes first and then
+prays, or prays first and then freezes.
 
 **Nothing in the codebase grants freezes.** `streakFreezeCount` starts at 0 and is only ever
 decremented, so this endpoint effectively always returns `NO_STREAK_FREEZE_AVAILABLE` until a row is

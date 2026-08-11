@@ -295,7 +295,11 @@ are warnings. Run `yarn lint` before finishing.
 - **Uniqueness is `(userId, prayerType, prayerDate)`** on `prayer_completions`; the code checks
   first and also catches Prisma `P2002` as `PRAYER_ALREADY_COMPLETED`.
 - **Streak advances only on the first completion of a local day**, and the freeze flow uses a
-  `Serializable` transaction plus a `SELECT … FOR UPDATE` on `user_streaks`.
+  `Serializable` transaction plus a `SELECT … FOR UPDATE` on `user_streaks`. A reset that overwrites
+  a broken streak stores it in `recoverableStreak` / `brokenSinceDate` while the 3-day freeze window
+  is open; the freeze's recovery branch restores it and **merges** it into the running streak (pray
+  then freeze ≡ freeze then pray). Do not "simplify" either side away — the two orders must stay
+  equivalent.
 
 - **Auth is rate limited in two independent layers.** Per-IP throttling on every credential- or
   email-touching route (`src/common/throttler/throttle.constants.ts`, registered globally by
