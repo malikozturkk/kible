@@ -12,7 +12,7 @@ All primary keys are `String @id @default(uuid())`.
 | -------------------------- | -------------------------------------------------------------------------------------- |
 | `Gender`                   | `MALE`, `FEMALE`                                                                       |
 | `Madhab`                   | `SHAFI`, `HANAFI`                                                                      |
-| `ConsentType`              | `TERMS_OF_SERVICE`, `PRIVACY_POLICY`                                                   |
+| `ConsentType`              | `TERMS_OF_SERVICE`, `PRIVACY_POLICY`, `SPECIAL_CATEGORY_DATA`                          |
 | `PrayerType`               | `FAJR`, `DHUHR`, `ASR`, `MAGHRIB`, `ISHA`, `JUMUAH`, `TARAWIH`, `EID_FITR`, `EID_ADHA` |
 | `PrayerCategory`           | `DAILY`, `WEEKLY`, `RAMADAN`, `EID`                                                    |
 | `PrayerCompletionStatus`   | `ON_TIME`, `LATE`                                                                      |
@@ -47,6 +47,9 @@ Question           standalone — guideId is a plain string, not a foreign key
 
 Every `User` relation uses `onDelete: Cascade`, so deleting a user removes their whole footprint —
 except `PasswordReset` and `OtpVerification`, which have no FK and are cleaned by cron instead.
+`DELETE /auth/me` (`AuthService.deleteAccount`) relies on exactly this: in one transaction it
+deletes the user's `password_resets` rows, any `otp_verifications` rows with the same email, and the
+`users` row, letting the cascade clear everything else.
 
 ---
 
@@ -91,25 +94,32 @@ See [`DOMAIN.md` §8](DOMAIN.md#brute-force-protection).
 ### `RefreshToken` → `refresh_tokens`
 
 Stores `tokenHash` (SHA-256 of a 32-byte random hex token, `@unique`), `isRevoked`, `expiresAt`
-(created at now + 1 day). Rows are **never deleted** — revoked and expired tokens accumulate
-indefinitely; there is no cleanup cron for this table. `/auth/refresh` rotates: it flips `isRevoked`
-on the presented row while inserting the replacement, so each token is single-use.
+(created at now + 1 day). An hourly cron (`AuthService.cleanupExpiredRefreshTokens`,
+`@Cron(CronExpression.EVERY_HOUR)`) deletes rows past `expiresAt` — revoked rows are caught by the
+same sweep at the latest one token lifetime (1 day) after issuance. `/auth/refresh` rotates: it
+flips `isRevoked` on the presented row while inserting the replacement, so each token is single-use.
 
 ### `OtpVerification` → `otp_verifications`
 
 The staging area for a signup. It duplicates every registration field (`email`, `username`,
 `passwordHash`, `gender`, `country`, `city`, `latitude`, `longitude`, `madhab`, `language`,
-`termsVersion`, `privacyPolicyVersion`) plus `tokenHash` (`@unique`, SHA-256 of the temp JWT),
-`otpCode`, `otpExpiresAt` (+3 min) and `expiresAt` (+10 min).
+`termsVersion`, `privacyPolicyVersion`, `specialCategoryVersion`) plus `tokenHash` (`@unique`,
+SHA-256 of the temp JWT), `otpCode`, `otpExpiresAt` (+3 min) and `expiresAt` (+10 min).
+
+`otpCode` is **not** the plaintext 6-digit code: `OtpService.hashOtpCode` stores its HMAC-SHA256
+keyed with `JWT_SECRET`, and `verify()` compares the presented code's HMAC via
+`crypto.timingSafeEqual` — a DB leak alone does not expose the code.
 
 **Adding a field to registration means adding a column here too** — the `users` row is built from
-this table in `OtpService.verify`. A minute-ly cron deletes rows past `expiresAt`.
+this table in `OtpService.verify`. A minute-ly cron deletes rows past `expiresAt`, and
+`DELETE /auth/me` removes any rows holding the deleted account's email.
 
 ### `PasswordReset` → `password_resets`
 
 `tokenHash` is a **bcrypt** hash (not SHA-256, unlike refresh tokens) and is _not_ unique, so lookup
 is by `userId` + `isUsed: false`, newest first, then a bcrypt compare. `failedAttempts` exists but
-is never incremented. `userId` is a plain column with an index — no foreign key, no cascade.
+is never incremented. `userId` is a plain column with an index — no foreign key, no cascade, which
+is why `DELETE /auth/me` deletes the user's rows here explicitly inside its transaction.
 
 ### `UserConsent` → `user_consents`
 
@@ -259,16 +269,13 @@ Turkish-locale case folding. That is gone: options are real `prayer_question_opt
 | `20260605114914_prayer_quiz`              | only sets `language DEFAULT 'tr'` on `users` and `otp_verifications`                                                                                                                                                                                                                 |
 | `20260801120000_unify_question_bank`      | `QuestionScope` enum; `scope` / `guideId` on `prayer_questions`; `@@unique(questionId, orderIndex)` on `prayer_question_options`; copies `questions` rows in (ids preserved, `options[]` expanded into option rows) and **drops `questions`**                                        |
 | `20260801130000_prayer_late_marking`      | `PrayerCompletionStatus` enum; `status` / `xpBeforePenalty` + `(userId, status)` index on `prayer_completions`; `markWindowEndsAt` on `prayer_quiz_submissions`; `totalOnTime` / `totalLate` on `user_prayer_stats`; backfills all four (every pre-existing completion is `ON_TIME`) |
+| `20260801200000_profile_change_quotas`    | `locationChangeCount` / `madhabChangeCount` on `users`, both defaulting to 0 so every existing user keeps one change                                                                                                                                                                 |
+| `20260802120000_login_lockout`            | `failedLoginAttempts` / `lockedUntil` on `user_credentials`; `usernameUpdatedAt` on `users` (null = never renamed, so nobody is retroactively inside the rename cooldown)                                                                                                            |
+| `20260802130000_token_version`            | `tokenVersion` on `user_credentials`, default 0 — matching the `tv` claim's fallback, so tokens issued before this shipped keep validating                                                                                                                                           |
+| `20260809090333_streak_recovery`          | `recoverableStreak` (default 0) / `brokenSinceDate` (`date`, null) on `user_streaks` — the stored recovery pair a restart writes and the freeze's recovery branch consumes                                                                                                           |
+| `20260812120000_special_category_consent` | adds `SPECIAL_CATEGORY_DATA` to `ConsentType`; **deletes all `otp_verifications` rows** (transient signup drafts, lifetime ≤ 10 min — no user data is lost) so the new **NOT NULL** `specialCategoryVersion` column can be added                                                     |
 
-| `20260801200000_profile_change_quotas` | `locationChangeCount` / `madhabChangeCount` on `users`,
-both defaulting to 0 so every existing user keeps one change | | `20260802120000_login_lockout` |
-`failedLoginAttempts` / `lockedUntil` on `user_credentials`; `usernameUpdatedAt` on `users` (null =
-never renamed, so nobody is retroactively inside the rename cooldown) | |
-`20260802130000_token_version` | `tokenVersion` on `user_credentials`, default 0 — matching the `tv`
-claim's fallback, so tokens issued before this shipped keep validating | |
-`20260809090333_streak_recovery` | `recoverableStreak` (default 0) / `brokenSinceDate` (`date`,
-null) on `user_streaks` — the stored recovery pair a restart writes and the freeze's recovery branch
-consumes | | Note that `schema.prisma` declares `datasource db { provider = "postgresql" }` with
-**no `url`** — the connection string is supplied by [`prisma.config.ts`](../prisma.config.ts), which
-reads `DATABASE_URL` after loading `.env`. Prisma CLI commands therefore work without a `url` in the
+Note that `schema.prisma` declares `datasource db { provider = "postgresql" }` with **no `url`** —
+the connection string is supplied by [`prisma.config.ts`](../prisma.config.ts), which reads
+`DATABASE_URL` after loading `.env`. Prisma CLI commands therefore work without a `url` in the
 schema.

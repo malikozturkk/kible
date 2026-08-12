@@ -3,6 +3,7 @@ import {
   Post,
   Get,
   Patch,
+  Delete,
   Body,
   UseGuards,
   Request,
@@ -71,6 +72,13 @@ export class AuthController {
     @Body() refreshTokenDto: RefreshTokenDto,
   ): Promise<void> {
     await this.authService.logout(req.user.id, refreshTokenDto.refreshToken);
+  }
+
+  @Delete('me')
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(HttpStatus.OK)
+  async deleteAccount(@Request() req: AuthenticatedRequest): Promise<void> {
+    await this.authService.deleteAccount(req.user.id);
   }
 
   @Get(':username')

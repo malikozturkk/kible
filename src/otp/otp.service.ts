@@ -1,4 +1,4 @@
-import { Injectable, BadRequestException, ConflictException } from '@nestjs/common';
+import { Injectable, BadRequestException, ConflictException, Logger } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { StringValue } from 'ms';
@@ -8,6 +8,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { AuthResponseDto } from '../auth/dto/auth-response.dto';
 import { EmailService } from '../email/email.service';
 import { toAuthUser, USER_RESPONSE_SELECT } from '../auth/utils/user-response.util';
+import { maskEmail } from '../common/utils/email-mask.util';
 
 export interface RegisterData {
   email: string;
@@ -22,10 +23,12 @@ export interface RegisterData {
   language: string;
   termsVersion: string;
   privacyPolicyVersion: string;
+  specialCategoryVersion: string;
 }
 
 @Injectable()
 export class OtpService {
+  private readonly logger = new Logger(OtpService.name);
   private readonly OTP_EXPIRES_IN_MINUTES = 3;
   private readonly REGISTRATION_EXPIRES_IN_MINUTES = 10;
   private readonly JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN;
@@ -46,7 +49,7 @@ export class OtpService {
     await this.prisma.otpVerification.create({
       data: {
         tokenHash,
-        otpCode,
+        otpCode: this.hashOtpCode(otpCode),
         otpExpiresAt,
         email: registrationData.email,
         username: registrationData.username,
@@ -60,6 +63,7 @@ export class OtpService {
         language: registrationData.language,
         termsVersion: registrationData.termsVersion,
         privacyPolicyVersion: registrationData.privacyPolicyVersion,
+        specialCategoryVersion: registrationData.specialCategoryVersion,
         expiresAt,
       },
     });
@@ -80,7 +84,7 @@ export class OtpService {
         otpExpiresAt: { lte: now },
         expiresAt: { gt: minExpiresAt },
       },
-      data: { otpCode, otpExpiresAt },
+      data: { otpCode: this.hashOtpCode(otpCode), otpExpiresAt },
     });
 
     const record = await this.prisma.otpVerification.findUnique({
@@ -127,7 +131,10 @@ export class OtpService {
     try {
       await this.emailService.sendOtpEmail(email, name, { code });
     } catch (error) {
-      console.error(`OTP e-postası gönderilemedi: ${email}`, error);
+      this.logger.error(
+        `OTP_EMAIL_SEND_FAILED email=${maskEmail(email)}`,
+        error instanceof Error ? error.stack : undefined,
+      );
     }
   }
 
@@ -137,6 +144,13 @@ export class OtpService {
 
   hashToken(token: string): string {
     return crypto.createHash('sha256').update(token).digest('hex');
+  }
+
+  private hashOtpCode(code: string): string {
+    return crypto
+      .createHmac('sha256', process.env.JWT_SECRET as string)
+      .update(code)
+      .digest('hex');
   }
 
   async verify(token: string, code: string): Promise<AuthResponseDto> {
@@ -159,7 +173,7 @@ export class OtpService {
       throw new BadRequestException('OTP_EXPIRED');
     }
 
-    if (!crypto.timingSafeEqual(Buffer.from(record.otpCode), Buffer.from(code))) {
+    if (!crypto.timingSafeEqual(Buffer.from(record.otpCode), Buffer.from(this.hashOtpCode(code)))) {
       throw new BadRequestException('INVALID_OTP_CODE');
     }
 
@@ -214,6 +228,11 @@ export class OtpService {
               userId: createdUser.id,
               type: ConsentType.PRIVACY_POLICY,
               version: record.privacyPolicyVersion,
+            },
+            {
+              userId: createdUser.id,
+              type: ConsentType.SPECIAL_CATEGORY_DATA,
+              version: record.specialCategoryVersion,
             },
           ],
         });

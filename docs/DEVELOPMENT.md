@@ -41,6 +41,7 @@ when debugging a boot error.
 | `LOG_LEVEL`                                    | pino log level (`trace`…`fatal`)                       | **optional**; defaults to `info` when `NODE_ENV=production`, otherwise `debug`          |
 | `CONSENT_VERSION_TERMS_OF_SERVICE`             | `consentConfig`                                        | **throws at boot**: `CONSENT_VERSIONS_NOT_CONFIGURED`                                   |
 | `CONSENT_VERSION_PRIVACY_POLICY`               | `consentConfig`                                        | same                                                                                    |
+| `CONSENT_VERSION_SPECIAL_CATEGORY_DATA`        | `consentConfig`                                        | same                                                                                    |
 | `MAILJET_API_KEY` / `MAILJET_API_SECRET`       | `EmailService`                                         | OTP and reset emails fail at send time                                                  |
 | `MAILJET_SENDER_EMAIL` / `MAILJET_SENDER_NAME` | `EmailService`                                         | Mailjet rejects the message                                                             |
 | `MAILJET_OTP_TEMPLATE_ID`                      | OTP email                                              | `Number(undefined)` → `NaN` → Mailjet rejects                                           |
@@ -189,7 +190,7 @@ curl -s -X POST $BASE/auth/register -H 'Content-Type: application/json' -d '{
   "username":"test_user","email":"you@example.com","password":"password123",
   "gender":"MALE","country":"Türkiye","city":"İstanbul",
   "latitude":41.0082,"longitude":28.9784,"madhab":"HANAFI","language":"tr",
-  "termsAccepted":true,"privacyPolicyAccepted":true }'
+  "termsAccepted":true,"privacyPolicyAccepted":true,"specialCategoryDataAccepted":true }'
 
 # 2. verify — creates the user, returns access + refresh tokens
 curl -s -X POST $BASE/otp/verify \
@@ -205,7 +206,7 @@ Registration and password reset send **real email through Mailjet**, including f
 Use an address you control.
 
 If you need a user without touching email, insert the rows directly (`users` + `user_credentials` +
-`user_xp` + `user_streaks` + `user_avatar_configs` + two `user_consents`) — that is exactly what
+`user_xp` + `user_streaks` + `user_avatar_configs` + three `user_consents`) — that is exactly what
 `OtpService.verify` does.
 
 ## Troubleshooting
@@ -238,5 +239,5 @@ yarn start:prod               # node dist/main
 `docker-compose.yml` provisions the local database only; it does not build or run the API.
 
 Before a first deployment, someone will need to decide on: the production `FRONTEND_BASE_URL` value
-(it gates CORS), a production `PEPPER` and `JWT_SECRET`, whether both cron sweepers should run in
-every replica, and a cleanup strategy for `refresh_tokens` (nothing prunes that table today).
+(it gates CORS), a production `PEPPER` and `JWT_SECRET`, and whether all three cron sweepers (OTP,
+password resets, expired refresh tokens) should run in every replica.

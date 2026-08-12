@@ -1,8 +1,10 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import Mailjet from 'node-mailjet';
+import { maskEmail } from '../common/utils/email-mask.util';
 
 @Injectable()
 export class EmailService {
+  private readonly logger = new Logger(EmailService.name);
   private readonly mailjet: Mailjet;
 
   private readonly senderEmail = process.env.MAILJET_SENDER_EMAIL;
@@ -25,7 +27,7 @@ export class EmailService {
     variables: Record<string, any>,
   ): Promise<void> {
     try {
-      const result = await this.mailjet.post('send', { version: 'v3.1' }).request({
+      await this.mailjet.post('send', { version: 'v3.1' }).request({
         Messages: [
           {
             From: {
@@ -47,10 +49,12 @@ export class EmailService {
         ],
       });
 
-      console.log(`E-posta başarıyla gönderildi: ${toEmail}`);
-      console.debug(`Mailjet yanıtı: ${JSON.stringify(result.body)}`);
+      this.logger.log(`OTP_EMAIL_SENT email=${maskEmail(toEmail)}`);
     } catch (error: any) {
-      console.error(`E-posta gönderimi başarısız: ${toEmail}`, error?.stack || error?.message);
+      this.logger.error(
+        `OTP_EMAIL_SEND_FAILED email=${maskEmail(toEmail)}`,
+        error?.stack || error?.message,
+      );
       throw error;
     }
   }
@@ -61,7 +65,7 @@ export class EmailService {
     variables: Record<string, any>,
   ): Promise<void> {
     try {
-      const result = await this.mailjet.post('send', { version: 'v3.1' }).request({
+      await this.mailjet.post('send', { version: 'v3.1' }).request({
         Messages: [
           {
             From: {
@@ -83,10 +87,12 @@ export class EmailService {
         ],
       });
 
-      console.log(`E-posta başarıyla gönderildi: ${toEmail}`);
-      console.debug(`Mailjet yanıtı: ${JSON.stringify(result.body)}`);
+      this.logger.log(`FORGOT_PASSWORD_EMAIL_SENT email=${maskEmail(toEmail)}`);
     } catch (error: any) {
-      console.error(`E-posta gönderimi başarısız: ${toEmail}`, error?.stack || error?.message);
+      this.logger.error(
+        `FORGOT_PASSWORD_EMAIL_SEND_FAILED email=${maskEmail(toEmail)}`,
+        error?.stack || error?.message,
+      );
       throw error;
     }
   }

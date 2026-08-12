@@ -96,4 +96,8 @@ export class RegisterDto {
   @IsBoolean({ message: 'PRIVACY_POLICY_ACCEPTED_MUST_BE_BOOLEAN' })
   @Equals(true, { message: 'PRIVACY_POLICY_NOT_ACCEPTED' })
   privacyPolicyAccepted: boolean;
+
+  @IsBoolean({ message: 'SPECIAL_CATEGORY_CONSENT_MUST_BE_BOOLEAN' })
+  @Equals(true, { message: 'SPECIAL_CATEGORY_CONSENT_NOT_ACCEPTED' })
+  specialCategoryDataAccepted: boolean;
 }

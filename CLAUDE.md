@@ -174,7 +174,7 @@ exist** in this repo — the script will fail until that config is added.
 ```
 prisma/
   schema.prisma               # single source of truth for the DB
-  migrations/                 # 9 migrations, oldest 20260420201800_consent
+  migrations/                 # 12 migrations, oldest 20260420201800_consent
   seed.ts                     # idempotent seed runner — `yarn prisma:seed`
   seeds/                      # seed data: prayer-questions/*.ts, guide-questions.ts
 src/
@@ -348,8 +348,9 @@ These are verified facts about the current tree, not bugs to fold into an unrela
   but never applied to any handler.
 - `DEFAULT_MADHAB` (`'HANAFI'`) and `DEFAULT_LANGUAGE` in `src/auth/constants/` are unused; the
   Prisma default for `User.madhab` is `SHAFI`. Don't assume the constant is authoritative.
-- `RegisterDto.termsAccepted` / `privacyPolicyAccepted` are validated as `Equals(true)` but never
-  read by `AuthService.register()` — the recorded consent versions come from the env config instead.
+- `RegisterDto.termsAccepted` / `privacyPolicyAccepted` / `specialCategoryDataAccepted` are
+  validated as `Equals(true)` but never read by `AuthService.register()` — the recorded consent
+  versions come from the env config (`CONSENT_VERSION_*`) instead.
 - `User.gender` does not exist; gender lives on `user_avatar_configs` (and transiently on
   `otp_verifications`).
 - Throttler storage is the in-memory default, so limits are **per instance**. Running more than one

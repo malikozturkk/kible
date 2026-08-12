@@ -14,10 +14,12 @@ export const CONSENT_BYPASS_ROUTES: ReadonlyArray<{ method: string; path: RegExp
   { method: 'POST', path: /^\/consent\/accept\/?$/ },
   { method: 'POST', path: /^\/auth\/logout\/?$/ },
   { method: 'POST', path: /^\/auth\/refresh\/?$/ },
+  { method: 'DELETE', path: /^\/auth\/me\/?$/ },
   { method: 'GET', path: /^\/legal(\/.*)?$/ },
 ];
 
 export const CONSENT_VERSION_ENV_KEYS = {
   TERMS_OF_SERVICE: 'CONSENT_VERSION_TERMS_OF_SERVICE',
   PRIVACY_POLICY: 'CONSENT_VERSION_PRIVACY_POLICY',
+  SPECIAL_CATEGORY_DATA: 'CONSENT_VERSION_SPECIAL_CATEGORY_DATA',
 } as const;

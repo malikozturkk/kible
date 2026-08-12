@@ -60,9 +60,9 @@ instantiated in every feature module that protects a route — can inject it.
 Note that `OtpModule` and `QuestionsModule` are not listed in `AppModule` — their controllers are
 still mounted because the modules are reachable through `AuthModule` and `GuidesModule`.
 
-`consentConfig` (`src/config/consent.config.ts`) reads `CONSENT_VERSION_TERMS_OF_SERVICE` and
-`CONSENT_VERSION_PRIVACY_POLICY` and **throws at boot** if either is missing, exposing them as the
-`CONSENT_VERSIONS` config key.
+`consentConfig` (`src/config/consent.config.ts`) reads `CONSENT_VERSION_TERMS_OF_SERVICE`,
+`CONSENT_VERSION_PRIVACY_POLICY` and `CONSENT_VERSION_SPECIAL_CATEGORY_DATA` and **throws at boot**
+if any is missing, exposing them as the `CONSENT_VERSIONS` config key.
 
 ## Request lifecycle
 
@@ -91,7 +91,8 @@ was removed.
 Routes behind `OtpJwtGuard` (`/otp/verify`, `/otp/resend`) are deliberately outside the gate: they
 run before the account exists. `ConsentGuard` still honors `@ConsentBypass()`, `@Public()`, and the
 static `CONSENT_BYPASS_ROUTES` regex list covering `/consent/status`, `/consent/accept`,
-`/auth/logout`, `/auth/refresh` and `/legal/*`.
+`/auth/logout`, `/auth/refresh`, `DELETE /auth/me` (account deletion must not be blockable by a
+pending re-accept) and `/legal/*`.
 
 ### Trust proxy and client IP
 
@@ -160,7 +161,10 @@ HTTP access log — is one structured JSON stream on stdout (pretty-printed via 
 - **No personal data beyond need (KVKK).** Serializers are slimmed so headers and request/response
   bodies are never logged; `redact` additionally censors `authorization`, `cookie` and password- or
   token-shaped body fields as defense in depth. The IP address and pseudonymous `userId` are logged
-  for abuse handling — keep log retention short in production.
+  for abuse handling — keep log retention short in production. Where an email address must appear in
+  a log line (`EmailService`, `OtpService` send/failure events), it is masked with `maskEmail`
+  (`src/common/utils/email-mask.util.ts`, `"malik@example.com"` → `"m***@example.com"` — the domain
+  is kept for abuse analysis), and the Mailjet response body is never logged.
 - **Level** comes from `LOG_LEVEL` (optional), defaulting to `info` in production and `debug`
   otherwise.
 - **Client errors.** `TelemetryModule` (`src/telemetry/`) exposes `POST /telemetry/client-errors`
@@ -203,14 +207,15 @@ raw SQL in `src/`.
 
 ### Scheduled jobs
 
-Two `@Cron(CronExpression.EVERY_MINUTE)` sweepers, enabled by `ScheduleModule.forRoot()`:
+Three `@Cron` sweepers, enabled by `ScheduleModule.forRoot()`:
 
-| Where                                 | What                                         |
-| ------------------------------------- | -------------------------------------------- |
-| `OtpService.cleanupExpiredRecords`    | deletes `otp_verifications` past `expiresAt` |
-| `PasswordResetService.cleanupExpired` | deletes `password_resets` past `expiresAt`   |
+| Where                                     | Schedule       | What                                         |
+| ----------------------------------------- | -------------- | -------------------------------------------- |
+| `OtpService.cleanupExpiredRecords`        | `EVERY_MINUTE` | deletes `otp_verifications` past `expiresAt` |
+| `PasswordResetService.cleanupExpired`     | `EVERY_MINUTE` | deletes `password_resets` past `expiresAt`   |
+| `AuthService.cleanupExpiredRefreshTokens` | `EVERY_HOUR`   | deletes `refresh_tokens` past `expiresAt`    |
 
-Both run in every process — running multiple replicas means duplicated (idempotent) deletes.
+All run in every process — running multiple replicas means duplicated (idempotent) deletes.
 
 ### Caching
 

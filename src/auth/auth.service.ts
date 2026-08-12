@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
+import { Cron, CronExpression } from '@nestjs/schedule';
 import { StringValue } from 'ms';
 import * as bcrypt from 'bcrypt';
 import { ConsentType } from '@prisma/client';
@@ -131,6 +132,7 @@ export class AuthService {
       language,
       termsVersion: versions[ConsentType.TERMS_OF_SERVICE],
       privacyPolicyVersion: versions[ConsentType.PRIVACY_POLICY],
+      specialCategoryVersion: versions[ConsentType.SPECIAL_CATEGORY_DATA],
     });
 
     return {
@@ -261,6 +263,30 @@ export class AuthService {
     });
   }
 
+  async deleteAccount(userId: string): Promise<void> {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, email: true },
+    });
+
+    if (!user) {
+      throw new NotFoundException('USER_NOT_FOUND');
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.passwordReset.deleteMany({ where: { userId } });
+      await tx.otpVerification.deleteMany({ where: { email: user.email } });
+      await tx.user.delete({ where: { id: userId } });
+    });
+  }
+
+  @Cron(CronExpression.EVERY_HOUR)
+  async cleanupExpiredRefreshTokens(): Promise<void> {
+    await this.prisma.refreshToken.deleteMany({
+      where: { expiresAt: { lt: new Date() } },
+    });
+  }
+
   private getProfileSelect(isOwner: boolean) {
     const base = {
       username: true,
@@ -268,13 +294,15 @@ export class AuthService {
       createdAt: true,
       country: true,
       city: true,
-      madhab: true,
       language: true,
     };
 
+    // madhab, KVKK m.6 kapsamında özel nitelikli veridir (inanç); yalnızca hesabın
+    // sahibine döner, başka kullanıcılara asla gösterilmez.
     const ownerOnly = {
       id: true,
       email: true,
+      madhab: true,
       updatedAt: true,
       locationChangeCount: true,
       madhabChangeCount: true,

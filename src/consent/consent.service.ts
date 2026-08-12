@@ -12,7 +12,11 @@ import {
 } from './consent.constants';
 import { ConsentStatusItemDto, ConsentStatusResponseDto } from './dto/consent-status.dto';
 
-const CONSENT_TYPES: ConsentType[] = [ConsentType.TERMS_OF_SERVICE, ConsentType.PRIVACY_POLICY];
+const CONSENT_TYPES: ConsentType[] = [
+  ConsentType.TERMS_OF_SERVICE,
+  ConsentType.PRIVACY_POLICY,
+  ConsentType.SPECIAL_CATEGORY_DATA,
+];
 type LatestConsentRow = { type: ConsentType; version: string };
 
 @Injectable()

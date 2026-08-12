@@ -45,6 +45,7 @@ emails a 6-digit code.
   "language": "tr", // ^[a-z]{2}(-[A-Z]{2})?$
   "termsAccepted": true, // must be exactly true
   "privacyPolicyAccepted": true, // must be exactly true
+  "specialCategoryDataAccepted": true, // must be exactly true — KVKK special-category consent
 }
 ```
 
@@ -53,7 +54,8 @@ Returns `{ "tempToken": "<jwt>" }` — valid 10 minutes, carries `purpose: "regi
 Errors: `USERNAME_ALREADY_EXISTS` (409), `USER_ALREADY_EXISTS` (409), `ACTIVE_REGISTRATION_EXISTS`
 (409 — an unexpired pending registration already holds that email/username), plus 400
 `VALIDATION_ERROR` with `USERNAME_TOO_SHORT` / `USERNAME_TOO_LONG` / `PASSWORD_TOO_SHORT` /
-`PASSWORD_TOO_LONG` / `PASSWORD_TOO_WEAK` in `attachment`.
+`PASSWORD_TOO_LONG` / `PASSWORD_TOO_WEAK` / `TERMS_NOT_ACCEPTED` / `PRIVACY_POLICY_NOT_ACCEPTED` /
+`SPECIAL_CATEGORY_CONSENT_NOT_ACCEPTED` in `attachment`.
 
 Throttled: **5 requests / hour** per IP (each call sends a real email).
 
@@ -63,7 +65,8 @@ The frontend mirrors them in `secde/src/validations/auth.validation.ts` for pre-
 — the backend is the boundary.
 
 > The accepted consent **versions** are read from the server's `CONSENT_VERSION_*` env vars, not
-> from the request. `termsAccepted` / `privacyPolicyAccepted` are validated but otherwise unused.
+> from the request. `termsAccepted` / `privacyPolicyAccepted` / `specialCategoryDataAccepted` are
+> validated but otherwise unused.
 
 ### `POST /auth/login` — — · `200`
 
@@ -98,6 +101,19 @@ replaying it returns `INVALID_OR_EXPIRED_REFRESH_TOKEN`.
 (401, also when the token belongs to another user), `TOKEN_ALREADY_INVALIDATED` (401),
 `REFRESH_TOKEN_EXPIRED` (401).
 
+### `DELETE /auth/me` — `JWT` · `200`
+
+Deletes the caller's account (KVKK right-to-erasure). No request body; returns `null`.
+
+In one transaction it deletes the user's `password_resets` rows (`userId` is not a foreign key, so
+the cascade would miss them), any `otp_verifications` rows holding the same email, and finally the
+`users` row — every other table is removed by `onDelete: Cascade`.
+
+The route is on the static `CONSENT_BYPASS_ROUTES` list, so it stays reachable even while a consent
+re-accept is pending — the consent gate must not be able to block an erasure request.
+
+Errors: `USER_NOT_FOUND` (404).
+
 ### `GET /auth/:username` — `JWT`
 
 Profile of `:username` as seen by the caller.
@@ -109,12 +125,14 @@ Profile of `:username` as seen by the caller.
   "createdAt": "…",
   "country": "…",
   "city": "…",
-  "madhab": "SHAFI",
   "language": "tr",
   // owner only:
   "id": "…",
   "email": "…",
+  "madhab": "SHAFI",
   "updatedAt": "…",
+  "locationChangeCount": 0,
+  "madhabChangeCount": 0,
   "avatarCustomization": { "gender": "MALE", "colors": {}, "accessories": {} },
   "isFollowing": false, // null when viewing your own profile
   "followerCount": 0,
@@ -123,8 +141,10 @@ Profile of `:username` as seen by the caller.
 }
 ```
 
-`id`, `email` and `updatedAt` are returned **only** when the caller is the profile owner. Errors:
-`USER_NOT_FOUND` (404).
+`id`, `email`, `madhab`, `updatedAt`, `locationChangeCount` and `madhabChangeCount` are returned
+**only** when the caller is the profile owner. `madhab` is special-category data under KVKK (it
+reveals religious belief), so it was removed from the public profile — other users never see it.
+Errors: `USER_NOT_FOUND` (404).
 
 ### `PATCH /auth/profile` — `JWT`
 
@@ -248,9 +268,9 @@ Follow errors: `USER_NOT_FOUND` (404), `CANNOT_FOLLOW_YOURSELF` (400).
 
 `{ "code": "123456" }` (exactly 6 digits). Throttled: **5 requests / minute** — a 6-digit code is
 only 10⁶ combinations with a 3-minute life. On success, atomically creates the `users` row plus its
-`user_credentials`, `user_xp`, `user_streaks` and `user_avatar_configs` records and two
-`user_consents` rows, deletes the pending registration, and returns
-`{ accessToken, refreshToken, user }` — the same shape as login.
+`user_credentials`, `user_xp`, `user_streaks` and `user_avatar_configs` records and three
+`user_consents` rows (`TERMS_OF_SERVICE`, `PRIVACY_POLICY`, `SPECIAL_CATEGORY_DATA`), deletes the
+pending registration, and returns `{ accessToken, refreshToken, user }` — the same shape as login.
 
 Errors: `MISSING_TOKEN` / `INVALID_TOKEN_PURPOSE` / `INVALID_OR_EXPIRED_TOKEN` (401),
 `OTP_NOT_FOUND` (400), `REGISTRATION_EXPIRED` (400), `OTP_EXPIRED` (400), `INVALID_OTP_CODE` (400),
@@ -285,6 +305,12 @@ the current code is still valid), `INSUFFICIENT_TIME_FOR_NEW_OTP` (400).
       "currentVersion": "1.0.0",
       "requiresReaccept": false,
     },
+    {
+      "type": "SPECIAL_CATEGORY_DATA",
+      "acceptedVersion": "1.0.0",
+      "currentVersion": "1.0.0",
+      "requiresReaccept": false,
+    },
   ],
   "blocked": true,
 }
@@ -292,9 +318,9 @@ the current code is still valid), `INSUFFICIENT_TIME_FOR_NEW_OTP` (400).
 
 ### `POST /consent/accept` — `JWT` · `200` · throttled 10 req/min
 
-`{ "type": "TERMS_OF_SERVICE" | "PRIVACY_POLICY", "version": "1.1.0" }` → `null`. The version must
-equal the server's current version, otherwise `CONSENT_OUTDATED` (400). Re-accepting the same
-version is a no-op (the `P2002` unique violation is swallowed).
+`{ "type": "TERMS_OF_SERVICE" | "PRIVACY_POLICY" | "SPECIAL_CATEGORY_DATA", "version": "1.1.0" }` →
+`null`. The version must equal the server's current version, otherwise `CONSENT_OUTDATED` (400).
+Re-accepting the same version is a no-op (the `P2002` unique violation is swallowed).
 
 Both routes carry `@ConsentBypass()`, so they stay reachable while a re-accept is pending.
 

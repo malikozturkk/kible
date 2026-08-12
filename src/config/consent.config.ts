@@ -2,7 +2,11 @@ import { ConsentType } from '@prisma/client';
 import { CONSENT_VERSION_ENV_KEYS, type ConsentVersionsMap } from '../consent/consent.constants';
 
 export const consentConfig = () => {
-  const types: ConsentType[] = [ConsentType.TERMS_OF_SERVICE, ConsentType.PRIVACY_POLICY];
+  const types: ConsentType[] = [
+    ConsentType.TERMS_OF_SERVICE,
+    ConsentType.PRIVACY_POLICY,
+    ConsentType.SPECIAL_CATEGORY_DATA,
+  ];
 
   const map = {} as ConsentVersionsMap;
   const missing: string[] = [];

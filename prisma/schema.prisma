@@ -19,6 +19,7 @@ enum Madhab {
 enum ConsentType {
   TERMS_OF_SERVICE
   PRIVACY_POLICY
+  SPECIAL_CATEGORY_DATA
 }
 
 enum PrayerType {
@@ -177,6 +178,7 @@ model OtpVerification {
   passwordHash         String
   termsVersion         String
   privacyPolicyVersion String
+  specialCategoryVersion String
   gender               Gender   @default(MALE)
   country              String?
   city                 String?
