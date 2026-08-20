@@ -38,9 +38,7 @@ emails a 6-digit code.
   "password": "Str0ng!Pass", // 8–72 chars, must contain lower + upper + digit + symbol
   "gender": "MALE", // MALE | FEMALE
   "country": "Türkiye", // ≤ 64, PLACE_NAME_PATTERN
-  "city": "İstanbul", // ≤ 85, PLACE_NAME_PATTERN
-  "latitude": 41.0082, // -90..90, ≤ 8 decimals
-  "longitude": 28.9784, // -180..180, ≤ 8 decimals
+  "city": "İstanbul", // ≤ 85, PLACE_NAME_PATTERN — must be one of the 81 TR provinces
   "madhab": "HANAFI", // SHAFI | HANAFI
   "language": "tr", // ^[a-z]{2}(-[A-Z]{2})?$
   "termsAccepted": true, // must be exactly true
@@ -51,7 +49,13 @@ emails a 6-digit code.
 
 Returns `{ "tempToken": "<jwt>" }` — valid 10 minutes, carries `purpose: "register"`.
 
-Errors: `USERNAME_ALREADY_EXISTS` (409), `USER_ALREADY_EXISTS` (409), `ACTIVE_REGISTRATION_EXISTS`
+> **Coordinates are never taken from the client.** The body carries only `city`; the server derives
+> `latitude`/`longitude` from the chosen province via `resolveCityCoordinates()`
+> (`src/auth/constants/tr-cities.constants.ts`) and stages those onto the pending row. A `city` that
+> is not one of the 81 TR provinces is rejected with `INVALID_CITY` (400).
+
+Errors: `INVALID_CITY` (400 — city not in the province catalog), `USERNAME_ALREADY_EXISTS` (409),
+`USER_ALREADY_EXISTS` (409), `ACTIVE_REGISTRATION_EXISTS`
 (409 — an unexpired pending registration already holds that email/username), plus 400
 `VALIDATION_ERROR` with `USERNAME_TOO_SHORT` / `USERNAME_TOO_LONG` / `PASSWORD_TOO_SHORT` /
 `PASSWORD_TOO_LONG` / `PASSWORD_TOO_WEAK` / `TERMS_NOT_ACCEPTED` / `PRIVACY_POLICY_NOT_ACCEPTED` /
@@ -162,9 +166,7 @@ All fields optional; only the supplied ones change.
 
   // Location + madhab. Prayer times are derived from these, so they must stay editable.
   "country": "Türkiye", // ≤ 64, PLACE_NAME_PATTERN
-  "city": "Konya", // ≤ 85, PLACE_NAME_PATTERN
-  "latitude": 37.8746, // -90..90, ≤ 8 decimals
-  "longitude": 32.4932, // -180..180, ≤ 8 decimals
+  "city": "Konya", // ≤ 85, PLACE_NAME_PATTERN — one of the 81 TR provinces
   "madhab": "HANAFI", // SHAFI | HANAFI
 }
 ```
@@ -176,9 +178,12 @@ marks, spaces, `-`, `'`, `’` and `.`. `<img src=x onerror=alert(1)>` is now `4
 `INVALID_CITY` instead of being stored verbatim and shown to strangers in the leaderboard. Same rule
 on `POST /auth/register`.
 
-The four location fields move as a unit — sending some but not all returns
-`INCOMPLETE_LOCATION_UPDATE` (400). A city without its coordinates would leave prayer times pointing
-at the old place. `madhab` may be sent on its own.
+`country` and `city` move as a unit — sending one but not the other returns
+`INCOMPLETE_LOCATION_UPDATE` (400). Coordinates are **not** accepted from the client: when the
+province changes, the server re-derives `latitude`/`longitude` from the new `city` via
+`resolveCityCoordinates()` and stores those, so prayer times follow the chosen province. A `city`
+outside the 81-province catalog is rejected with `INVALID_CITY` (400). `madhab` may be sent on its
+own.
 
 Returns the updated user with `avatarCustomization`, plus `locationChangeCount` /
 `madhabChangeCount`.

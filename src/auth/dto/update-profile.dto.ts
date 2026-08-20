@@ -8,9 +8,6 @@ import {
   ValidateNested,
   IsIn,
   IsEnum,
-  IsNumber,
-  Min,
-  Max,
 } from 'class-validator';
 import { Madhab } from '@prisma/client';
 import { AvatarColorsDto } from './avatar-colors.dto';
@@ -84,20 +81,6 @@ export class UpdateProfileDto {
   @MaxLength(CITY_MAX_LENGTH, { message: 'INVALID_CITY' })
   @Matches(PLACE_NAME_PATTERN, { message: 'INVALID_CITY' })
   city?: string;
-
-  @Type(() => Number)
-  @IsOptional()
-  @IsNumber({ maxDecimalPlaces: 8 }, { message: 'INVALID_LATITUDE' })
-  @Min(-90, { message: 'INVALID_LATITUDE' })
-  @Max(90, { message: 'INVALID_LATITUDE' })
-  latitude?: number;
-
-  @Type(() => Number)
-  @IsOptional()
-  @IsNumber({ maxDecimalPlaces: 8 }, { message: 'INVALID_LONGITUDE' })
-  @Min(-180, { message: 'INVALID_LONGITUDE' })
-  @Max(180, { message: 'INVALID_LONGITUDE' })
-  longitude?: number;
 
   @IsOptional()
   @IsEnum(Madhab, { message: 'INVALID_MADHAB' })

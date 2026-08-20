@@ -324,6 +324,13 @@ are warnings. Run `yarn lint` before finishing.
 - **`city` / `country` are validated, not just length-capped.** `PLACE_NAME_PATTERN` in
   `src/auth/constants/location.constants.ts` is the one place the rule lives; register and profile
   update both use it. `city` is shown to strangers in the leaderboard, so it is untrusted input.
+- **Coordinates are derived from the city server-side — never taken from the client.** Neither
+  `RegisterDto` nor `UpdateProfileDto` accepts `latitude`/`longitude`; `register()` and
+  `updateProfile()` call `resolveCityCoordinates()` (`src/auth/constants/tr-cities.constants.ts`, the
+  81-province catalog kept in sync with the frontend `TR_CITIES`) and persist the province-center
+  coordinate onto `User`. Every reader (`worship`, `PrayerScheduleService`, `resolveTimezone`,
+  leaderboard) is unchanged because the columns still exist. Do **not** re-add lat/lon to the DTOs or
+  read them off the request — a city that is not in the catalog must fail with `INVALID_CITY`.
 - **Access tokens are revocable.** Each carries a `tv` claim equal to
   `user_credentials.tokenVersion`; `JwtStrategy` rejects a mismatch. Any change that must end every
   session increments that counter — revoking refresh tokens alone leaves issued access tokens

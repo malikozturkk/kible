@@ -26,6 +26,7 @@ import {
   BCRYPT_COST,
 } from './constants/profile.constants';
 import { AvatarColorsDto } from './dto/avatar-colors.dto';
+import { resolveCityCoordinates } from './constants/tr-cities.constants';
 import { resolveAvatarColors, resolveAvatarCustomizationFromDb } from './utils/avatar-config.util';
 import { toAuthUser, USER_RESPONSE_SELECT } from './utils/user-response.util';
 import { RegisterResponseDto } from './dto/register-response.dto';
@@ -58,22 +59,13 @@ export class AuthService {
   }
 
   async register(registerDto: RegisterDto): Promise<RegisterResponseDto> {
-    const {
-      username,
-      email,
-      password,
-      gender,
-      country,
-      city,
-      latitude,
-      longitude,
-      madhab,
-      language,
-    } = registerDto;
+    const { username, email, password, gender, country, city, madhab, language } = registerDto;
 
     if (!email) {
       throw new BadRequestException('EMAIL_REQUIRED');
     }
+
+    const { latitude, longitude } = resolveCityCoordinates(city);
 
     const existingUsername = await this.prisma.user.findUnique({
       where: { username },
@@ -422,12 +414,10 @@ export class AuthService {
       language,
       country,
       city,
-      latitude,
-      longitude,
       madhab,
     } = updateProfileDto;
 
-    const locationParts = [country, city, latitude, longitude];
+    const locationParts = [country, city];
     const providedLocationParts = locationParts.filter((v) => v !== undefined).length;
     if (providedLocationParts > 0 && providedLocationParts < locationParts.length) {
       throw new BadRequestException('INCOMPLETE_LOCATION_UPDATE');
@@ -439,8 +429,6 @@ export class AuthService {
         username: true,
         country: true,
         city: true,
-        latitude: true,
-        longitude: true,
         madhab: true,
         locationChangeCount: true,
         madhabChangeCount: true,
@@ -454,13 +442,11 @@ export class AuthService {
 
     const locationChanged =
       providedLocationParts === locationParts.length &&
-      (country !== current.country ||
-        city !== current.city ||
-        latitude !== current.latitude ||
-        longitude !== current.longitude);
+      (country !== current.country || city !== current.city);
     if (locationChanged && current.locationChangeCount >= MAX_LOCATION_CHANGES) {
       throw new ConflictException('LOCATION_CHANGE_LIMIT_REACHED');
     }
+    const resolvedCoordinates = locationChanged ? resolveCityCoordinates(city as string) : null;
 
     const madhabChanged = madhab !== undefined && madhab !== current.madhab;
     if (madhabChanged && current.madhabChangeCount >= MAX_MADHAB_CHANGES) {
@@ -540,13 +526,14 @@ export class AuthService {
         ...(usernameChanged && { username, usernameUpdatedAt: new Date() }),
         ...(avatar !== undefined && { avatar }),
         ...(language !== undefined && { language }),
-        ...(locationChanged && {
-          country,
-          city,
-          latitude,
-          longitude,
-          locationChangeCount: { increment: 1 },
-        }),
+        ...(locationChanged &&
+          resolvedCoordinates && {
+            country,
+            city,
+            latitude: resolvedCoordinates.latitude,
+            longitude: resolvedCoordinates.longitude,
+            locationChangeCount: { increment: 1 },
+          }),
         ...(madhabChanged && { madhab, madhabChangeCount: { increment: 1 } }),
       },
       select: {

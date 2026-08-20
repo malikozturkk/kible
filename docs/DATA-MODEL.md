@@ -60,6 +60,12 @@ deletes the user's `password_resets` rows, any `otp_verifications` rows with the
 `email` and `username` are both `@unique`. Profile columns: `avatar`, `country`, `city`, `latitude`,
 `longitude`, `madhab` (default `SHAFI`), `language` (default `"tr"`).
 
+`latitude` / `longitude` are **never supplied by the client** — the request carries only `city`, and
+the server derives the coordinates from the chosen province via `resolveCityCoordinates()`
+(`src/auth/constants/tr-cities.constants.ts`) at register and profile-update time. The columns are
+kept so every downstream reader (prayer times, timezone, leaderboard) stays unchanged; they just hold
+the province-center coordinate rather than a device-reported one.
+
 `locationChangeCount` and `madhabChangeCount` are **one-time quotas** (`MAX_LOCATION_CHANGES` /
 `MAX_MADHAB_CHANGES`, both 1). Location decides the timezone every prayer window is derived from, so
 an uncapped edit lets a user miss Fajr in İstanbul, move to a city several hours west where Fajr is

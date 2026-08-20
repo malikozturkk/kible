@@ -8,11 +8,8 @@ import {
   IsBoolean,
   Equals,
   IsEnum,
-  IsNumber,
-  Min,
-  Max,
 } from 'class-validator';
-import { Transform, Type } from 'class-transformer';
+import { Transform } from 'class-transformer';
 import { Gender, Madhab } from '@prisma/client';
 import {
   CITY_MAX_LENGTH,
@@ -69,18 +66,6 @@ export class RegisterDto {
   @MaxLength(CITY_MAX_LENGTH, { message: 'INVALID_CITY' })
   @Matches(PLACE_NAME_PATTERN, { message: 'INVALID_CITY' })
   city: string;
-
-  @Type(() => Number)
-  @IsNumber({ maxDecimalPlaces: 8 }, { message: 'INVALID_LATITUDE' })
-  @Min(-90, { message: 'INVALID_LATITUDE' })
-  @Max(90, { message: 'INVALID_LATITUDE' })
-  latitude: number;
-
-  @Type(() => Number)
-  @IsNumber({ maxDecimalPlaces: 8 }, { message: 'INVALID_LONGITUDE' })
-  @Min(-180, { message: 'INVALID_LONGITUDE' })
-  @Max(180, { message: 'INVALID_LONGITUDE' })
-  longitude: number;
 
   @IsEnum(Madhab, { message: 'INVALID_MADHAB' })
   madhab: Madhab;
