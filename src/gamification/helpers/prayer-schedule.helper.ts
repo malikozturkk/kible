@@ -3,7 +3,7 @@ import { PrayerTimes } from 'adhan';
 import { PrayerCompletionStatus, PrayerType } from '@prisma/client';
 import { PrayerSlot } from '../types/gamification.types';
 import {
-  JUMUAH_MARK_WINDOW_MINUTES,
+  CONGREGATIONAL_MARK_WINDOW_MINUTES,
   getLatePrayerXp,
   getPrayerBaseXp,
   getPrayerMetadata,
@@ -34,15 +34,7 @@ export function buildPrayerSlots(args: {
   slots.push(makeSlot('FAJR', fajr, fajr, sunrise, dhuhr));
 
   if (friday) {
-    slots.push(
-      makeSlot(
-        'JUMUAH',
-        dhuhr,
-        dhuhr.minus({ minutes: JUMUAH_MARK_WINDOW_MINUTES }),
-        dhuhr.plus({ minutes: JUMUAH_MARK_WINDOW_MINUTES }),
-        asr,
-      ),
-    );
+    slots.push(makeCongregationalSlot('JUMUAH', dhuhr));
   } else {
     slots.push(makeSlot('DHUHR', dhuhr, dhuhr, asr, asr));
   }
@@ -57,15 +49,19 @@ export function buildPrayerSlots(args: {
   }
 
   if (isEidFitr(hijri)) {
-    const eidTime = sunrise.plus({ minutes: 30 });
-    slots.unshift(makeSlot('EID_FITR', eidTime, eidTime, dhuhr, dhuhr));
+    slots.unshift(makeCongregationalSlot('EID_FITR', sunrise.plus({ minutes: 30 })));
   }
   if (isEidAdha(hijri)) {
-    const eidTime = sunrise.plus({ minutes: 30 });
-    slots.unshift(makeSlot('EID_ADHA', eidTime, eidTime, dhuhr, dhuhr));
+    slots.unshift(makeCongregationalSlot('EID_ADHA', sunrise.plus({ minutes: 30 })));
   }
 
   return slots;
+}
+
+function makeCongregationalSlot(type: PrayerType, scheduledAt: DateTime): PrayerSlot {
+  const opensAt = scheduledAt.minus({ minutes: CONGREGATIONAL_MARK_WINDOW_MINUTES });
+  const closesAt = scheduledAt.plus({ minutes: CONGREGATIONAL_MARK_WINDOW_MINUTES });
+  return makeSlot(type, scheduledAt, opensAt, closesAt, closesAt);
 }
 
 function makeSlot(

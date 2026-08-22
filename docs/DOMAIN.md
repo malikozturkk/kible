@@ -53,25 +53,35 @@ two records a `LATE` (kaza) completion — see [§2.1](#21-on-time-vs-late-kaza)
 | `ASR`      | DAILY    | asr → maghrib                   | maghrib (same)                   | yes        | 15      | 8       |
 | `MAGHRIB`  | DAILY    | maghrib → isha                  | isha (same)                      | yes        | 15      | 8       |
 | `ISHA`     | DAILY    | isha → _tomorrow's_ fajr        | tomorrow's fajr (same)           | yes        | 15      | 8       |
-| `JUMUAH`   | WEEKLY   | dhuhr − 15 min → dhuhr + 15 min | asr                              | no         | 25      | 13      |
+| `JUMUAH`   | WEEKLY   | dhuhr − 15 min → dhuhr + 15 min | dhuhr + 15 min (same)            | no         | 25      | 13      |
 | `TARAWIH`  | RAMADAN  | isha + 30 min → tomorrow's fajr | tomorrow's fajr (same)           | no         | 20      | 10      |
-| `EID_FITR` | EID      | sunrise + 30 min → dhuhr        | dhuhr (same)                     | no         | 50      | 25      |
-| `EID_ADHA` | EID      | sunrise + 30 min → dhuhr        | dhuhr (same)                     | no         | 50      | 25      |
+| `EID_FITR` | EID      | eid − 15 min → eid + 15 min     | eid + 15 min (same)              | no         | 50      | 25      |
+| `EID_ADHA` | EID      | eid − 15 min → eid + 15 min     | eid + 15 min (same)              | no         | 50      | 25      |
 
-Only `FAJR` and `JUMUAH` actually gain a late tail — every other prayer's own window already runs up
-to the next daily prayer, so its two ends coincide. Tarawih and the Eid prayers are supererogatory
-and deliberately do **not** shorten anyone's cutoff; otherwise Tarawih would cut Isha's markable
-span down to 30 minutes throughout Ramadan.
+"eid" above is `sunrise + 30 min`, the Eid prayer's `scheduledAt`.
+
+Only `FAJR` actually gains a late tail — every other daily prayer's own window already runs up to
+the next daily prayer, so its two ends coincide. Tarawih and the Eid prayers are supererogatory and
+deliberately do **not** shorten anyone's cutoff; otherwise Tarawih would cut Isha's markable span
+down to 30 minutes throughout Ramadan.
+
+**The three congregational prayers — `JUMUAH`, `EID_FITR`, `EID_ADHA` — have no late tail at all.**
+They are prayed with the congregation at one fixed moment, so both ends sit at
+`scheduledAt ± CONGREGATIONAL_MARK_WINDOW_MINUTES` (15) and `makeCongregationalSlot()` in
+`prayer-schedule.helper.ts` builds all three. Outside that half-hour they are simply not markable —
+never `LATE`. `lateXpReward` is still computed for them (`makeSlot()` fills it for every slot) but
+is unreachable, so the client's late-XP hint never shows for these three.
 
 Conditional slots:
 
 - **Friday** (`DateTime.weekday === 5`): `JUMUAH` **replaces** `DHUHR` — they never coexist. Its
-  `scheduledAt` is the dhuhr time and its **on-time** window is only ±`JUMUAH_MARK_WINDOW_MINUTES`
-  (15) around it, not the full dhuhr → asr span. Between `dhuhr + 15 min` and asr it is still
-  markable, but as `LATE`.
+  `scheduledAt` is the dhuhr time and its whole markable span is only
+  ±`CONGREGATIONAL_MARK_WINDOW_MINUTES` (15) around it, not the full dhuhr → asr span. From
+  `dhuhr + 15 min` on it is closed; it used to stay markable as `LATE` until asr.
 - **Ramadan** (Hijri month 9): `TARAWIH` is appended.
 - **Eid al-Fitr** (Shawwal 1) / **Eid al-Adha** (Dhu al-Hijjah 10): the Eid slot is _prepended_ to
-  the list with `unshift`, so it sorts first.
+  the list with `unshift`, so it sorts first. Like Jumuah it is markable only within ±15 min of
+  `sunrise + 30 min`; it used to stay markable until dhuhr.
 
 Hijri dates use `Intl.DateTimeFormat` with the `islamic-umalqura` calendar. `toHijri` takes the
 zoned Luxon `DateTime` and anchors the conversion to **12:00 UTC of that calendar day** — it used to
@@ -147,8 +157,12 @@ The submission stores both ends (`windowEndsAt`, `markWindowEndsAt`) and
 > at `expiresAt`. The submission stays `PENDING` (it is not marked `FAILED`), so the user is not
 > locked out — but the prayer can no longer be completed for that day.
 >
-> `JUMUAH` used to be the worst case at 30 minutes; since its cutoff now extends to asr, a quiz
-> started near the end of the ±15 min window can still be finished — it just lands as `LATE`.
+> The congregational prayers are the tight case: `JUMUAH`, `EID_FITR` and `EID_ADHA` are markable
+> for exactly 30 minutes, so a quiz started in the last ~80 seconds (3 questions × 25 s) can be
+> issued but not finished — `completeFromPassedQuiz()` re-checks `isWithinMarkWindow()` and answers
+> `PRAYER_WINDOW_CLOSED` (409). The submission stays `PENDING`, so the user is not locked out, but
+> that prayer is gone for the day. This is the deliberate cost of the ±15 min rule; nothing in the
+> code narrows the issue window to compensate.
 
 ### Timing
 

@@ -55,11 +55,11 @@ Returns `{ "tempToken": "<jwt>" }` — valid 10 minutes, carries `purpose: "regi
 > is not one of the 81 TR provinces is rejected with `INVALID_CITY` (400).
 
 Errors: `INVALID_CITY` (400 — city not in the province catalog), `USERNAME_ALREADY_EXISTS` (409),
-`USER_ALREADY_EXISTS` (409), `ACTIVE_REGISTRATION_EXISTS`
-(409 — an unexpired pending registration already holds that email/username), plus 400
-`VALIDATION_ERROR` with `USERNAME_TOO_SHORT` / `USERNAME_TOO_LONG` / `PASSWORD_TOO_SHORT` /
-`PASSWORD_TOO_LONG` / `PASSWORD_TOO_WEAK` / `TERMS_NOT_ACCEPTED` / `PRIVACY_POLICY_NOT_ACCEPTED` /
-`SPECIAL_CATEGORY_CONSENT_NOT_ACCEPTED` in `attachment`.
+`USER_ALREADY_EXISTS` (409), `ACTIVE_REGISTRATION_EXISTS` (409 — an unexpired pending registration
+already holds that email/username), plus 400 `VALIDATION_ERROR` with `USERNAME_TOO_SHORT` /
+`USERNAME_TOO_LONG` / `PASSWORD_TOO_SHORT` / `PASSWORD_TOO_LONG` / `PASSWORD_TOO_WEAK` /
+`TERMS_NOT_ACCEPTED` / `PRIVACY_POLICY_NOT_ACCEPTED` / `SPECIAL_CATEGORY_CONSENT_NOT_ACCEPTED` in
+`attachment`.
 
 Throttled: **5 requests / hour** per IP (each call sends a real email).
 
@@ -465,8 +465,9 @@ The card used to print the slot's base reward alone and under-report the day's f
 bonus (15 advertised, 25 awarded).
 
 `markWindowEndsAt` equals `windowEndsAt` for every prayer whose own window already runs up to the
-next daily prayer; only `FAJR` (sunrise → dhuhr) and `JUMUAH` (dhuhr + 15 min → asr) have a real
-late tail. See [`DOMAIN.md` §2.1](DOMAIN.md#21-on-time-vs-late-kaza).
+next daily prayer; only `FAJR` (sunrise → dhuhr) has a real late tail. `JUMUAH`, `EID_FITR` and
+`EID_ADHA` are markable only within ±15 min of their `scheduledAt` and can never be `LATE`. See
+[`DOMAIN.md` §2.1](DOMAIN.md#21-on-time-vs-late-kaza).
 
 ### `GET /gamification/streak-risk`
 

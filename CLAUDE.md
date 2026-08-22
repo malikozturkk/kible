@@ -263,15 +263,17 @@ are warnings. Run `yarn lint` before finishing.
 - **Prayer windows are derived, never stored.** `buildPrayerSlots()` computes each slot from adhan
   times: Fajr `fajr→sunrise`, Dhuhr `dhuhr→asr` (replaced by **Jumuah on Fridays**), Asr
   `asr→maghrib`, Maghrib `maghrib→isha`, Isha `isha→tomorrow's fajr`. Tarawih (Ramadan) is
-  `isha+30m→tomorrow's fajr`; Eid prayers are `sunrise+30m→dhuhr` and are prepended to the list.
-  **Jumuah is the exception**: its window is only `dhuhr−15m→dhuhr+15m`
-  (`JUMUAH_MARK_WINDOW_MINUTES`), not the full dhuhr→asr span.
+  `isha+30m→tomorrow's fajr`. **The three congregational prayers are the exception**: Jumuah, Eid
+  al-Fitr and Eid al-Adha are markable only within ±`CONGREGATIONAL_MARK_WINDOW_MINUTES` (15) of
+  their `scheduledAt` — dhuhr for Jumuah, `sunrise+30m` for the Eid prayers (still prepended to the
+  list). They have no late tail.
 - **Every slot has two ends.** `windowEndsAt` closes the prayer's own time; `markWindowEndsAt` is
   the start of the next _daily_ prayer and is the real cutoff for marking. Marking in between is
   allowed and recorded as `PrayerCompletionStatus.LATE` (kaza) for **half** the prayer's XP
   (`LATE_PRAYER_XP_MULTIPLIER`; the first-of-day bonus is not reduced). Guard code must use
   `isWithinMarkWindow()`, not `isWithinWindow()` — the latter now answers only "would this be on
   time?". Streaks ignore the distinction entirely. Tarawih/Eid never shorten another slot's cutoff.
+  For Jumuah and the Eid prayers the two ends coincide, so they can never be recorded as `LATE`.
 - **Calculation method is always `Turkey`; the madhab is always the user's.** Both `/worship` and
   `PrayerScheduleService` (gamification) now pass the stored `madhab`. Gamification used to hardcode
   `Shafi` (commit `823c539`), which put the two screens more than an hour apart for Hanafi users and
@@ -326,11 +328,12 @@ are warnings. Run `yarn lint` before finishing.
   update both use it. `city` is shown to strangers in the leaderboard, so it is untrusted input.
 - **Coordinates are derived from the city server-side — never taken from the client.** Neither
   `RegisterDto` nor `UpdateProfileDto` accepts `latitude`/`longitude`; `register()` and
-  `updateProfile()` call `resolveCityCoordinates()` (`src/auth/constants/tr-cities.constants.ts`, the
-  81-province catalog kept in sync with the frontend `TR_CITIES`) and persist the province-center
-  coordinate onto `User`. Every reader (`worship`, `PrayerScheduleService`, `resolveTimezone`,
-  leaderboard) is unchanged because the columns still exist. Do **not** re-add lat/lon to the DTOs or
-  read them off the request — a city that is not in the catalog must fail with `INVALID_CITY`.
+  `updateProfile()` call `resolveCityCoordinates()` (`src/auth/constants/tr-cities.constants.ts`,
+  the 81-province catalog kept in sync with the frontend `TR_CITIES`) and persist the
+  province-center coordinate onto `User`. Every reader (`worship`, `PrayerScheduleService`,
+  `resolveTimezone`, leaderboard) is unchanged because the columns still exist. Do **not** re-add
+  lat/lon to the DTOs or read them off the request — a city that is not in the catalog must fail
+  with `INVALID_CITY`.
 - **Access tokens are revocable.** Each carries a `tv` claim equal to
   `user_credentials.tokenVersion`; `JwtStrategy` rejects a mismatch. Any change that must end every
   session increments that counter — revoking refresh tokens alone leaves issued access tokens
