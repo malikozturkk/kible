@@ -45,7 +45,7 @@ export class QuestionsService {
   ): Promise<GuideCheckQuestionResponseDto> {
     const question = await this.prisma.prayerQuestion.findFirst({
       where: { id: questionId, scope: QuestionScope.GUIDE },
-      select: { options: { select: { id: true, isCorrect: true } } },
+      select: { explanation: true, options: { select: { id: true, isCorrect: true } } },
     });
     if (!question) {
       throw new NotFoundException('QUESTION_NOT_FOUND');
@@ -61,6 +61,10 @@ export class QuestionsService {
       throw new NotFoundException('QUESTION_HAS_NO_CORRECT_OPTION');
     }
 
-    return { isCorrect: selected.isCorrect, correctOptionId: correct.id };
+    return {
+      isCorrect: selected.isCorrect,
+      correctOptionId: correct.id,
+      explanation: question.explanation,
+    };
   }
 }

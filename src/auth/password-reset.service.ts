@@ -168,7 +168,7 @@ export class PasswordResetService {
           data: { isUsed: true },
         }),
       ]);
-    } catch (err) {
+    } catch {
       throw new InternalServerErrorException('PASSWORD_UPDATE_FAILED');
     }
   }
