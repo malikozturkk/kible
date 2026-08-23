@@ -30,6 +30,7 @@ export interface RegisterData {
 export class OtpService {
   private readonly logger = new Logger(OtpService.name);
   private readonly OTP_EXPIRES_IN_MINUTES = 3;
+  private readonly MAX_OTP_ATTEMPTS = 5;
   private readonly REGISTRATION_EXPIRES_IN_MINUTES = 10;
   private readonly JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN;
   private readonly REFRESH_TOKEN_EXPIRES_IN_DAYS = 1;
@@ -84,7 +85,7 @@ export class OtpService {
         otpExpiresAt: { lte: now },
         expiresAt: { gt: minExpiresAt },
       },
-      data: { otpCode: this.hashOtpCode(otpCode), otpExpiresAt },
+      data: { otpCode: this.hashOtpCode(otpCode), otpExpiresAt, failedAttempts: 0 },
     });
 
     const record = await this.prisma.otpVerification.findUnique({
@@ -139,7 +140,7 @@ export class OtpService {
   }
 
   private generateOtpCode(): string {
-    return crypto.randomInt(100000, 999999).toString();
+    return crypto.randomInt(100000, 1000000).toString();
   }
 
   hashToken(token: string): string {
@@ -174,6 +175,17 @@ export class OtpService {
     }
 
     if (!crypto.timingSafeEqual(Buffer.from(record.otpCode), Buffer.from(this.hashOtpCode(code)))) {
+      const { failedAttempts } = await this.prisma.otpVerification.update({
+        where: { id: record.id },
+        data: { failedAttempts: { increment: 1 } },
+        select: { failedAttempts: true },
+      });
+
+      if (failedAttempts >= this.MAX_OTP_ATTEMPTS) {
+        await this.prisma.otpVerification.delete({ where: { id: record.id } });
+        throw new BadRequestException('REGISTRATION_EXPIRED');
+      }
+
       throw new BadRequestException('INVALID_OTP_CODE');
     }
 

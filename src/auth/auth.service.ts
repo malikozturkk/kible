@@ -497,6 +497,10 @@ export class AuthService {
         throw new UnauthorizedException('INVALID_CURRENT_PASSWORD');
       }
 
+      if (newPassword === currentPassword) {
+        throw new BadRequestException('NEW_PASSWORD_MUST_DIFFER');
+      }
+
       const hashedPassword = await bcrypt.hash(newPassword + this.PEPPER, BCRYPT_COST);
 
       await this.prisma.$transaction(async (tx) => {

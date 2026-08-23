@@ -79,14 +79,14 @@ model User {
   createdAt     DateTime        @default(now())
   updatedAt     DateTime        @updatedAt
 
-  country       String?
-  city          String?
-  latitude      Float?
-  longitude     Float?
-  madhab        Madhab          @default(SHAFI)
-  language      String          @default("tr")
-  locationChangeCount Int         @default(0)
-  madhabChangeCount   Int         @default(0)
+  country             String?
+  city                String?
+  latitude            Float?
+  longitude           Float?
+  madhab              Madhab    @default(SHAFI)
+  language            String    @default("tr")
+  locationChangeCount Int       @default(0)
+  madhabChangeCount   Int       @default(0)
   usernameUpdatedAt   DateTime?
 
   // auth relations
@@ -94,18 +94,18 @@ model User {
   refreshTokens RefreshToken[]
 
   // gamification relations
-  xp            UserXp?
-  streak        UserStreak?
+  xp     UserXp?
+  streak UserStreak?
 
   // follow relations
-  following     Follow[]        @relation("UserFollowing")
-  followers     Follow[]        @relation("UserFollowers")
+  following Follow[] @relation("UserFollowing")
+  followers Follow[] @relation("UserFollowers")
 
   // avatar customization
-  avatarConfig    UserAvatarConfig?
+  avatarConfig UserAvatarConfig?
 
   // consent records
-  consents        UserConsent[]
+  consents UserConsent[]
 
   // prayer relations
   prayerCompletions   PrayerCompletion[]
@@ -116,16 +116,14 @@ model User {
   @@map("users")
 }
 
-
-
 model Follow {
   id          String   @id @default(uuid())
   followerId  String
   followingId String
   createdAt   DateTime @default(now())
 
-  follower    User @relation("UserFollowing", fields: [followerId], references: [id], onDelete: Cascade)
-  following   User @relation("UserFollowers", fields: [followingId], references: [id], onDelete: Cascade)
+  follower  User @relation("UserFollowing", fields: [followerId], references: [id], onDelete: Cascade)
+  following User @relation("UserFollowers", fields: [followingId], references: [id], onDelete: Cascade)
 
   @@unique([followerId, followingId])
   @@index([followerId])
@@ -136,12 +134,12 @@ model Follow {
 //////////////////////////////////////////////////////
 
 model UserCredential {
-  id                 String    @id @default(uuid())
-  userId             String    @unique
-  passwordHash       String
-  passwordUpdatedAt  DateTime  @default(now())
-  createdAt          DateTime  @default(now())
-  failedLoginAttempts Int      @default(0)
+  id                  String             @id @default(uuid())
+  userId              String             @unique
+  passwordHash        String
+  passwordUpdatedAt   DateTime           @default(now())
+  createdAt           DateTime           @default(now())
+  failedLoginAttempts Int                @default(0)
   lockedUntil         DateTime?
   tokenVersion        Int      @default(0)
 
@@ -169,25 +167,26 @@ model RefreshToken {
 //////////////////////////////////////////////////////
 
 model OtpVerification {
-  id                   String   @id @default(uuid())
-  tokenHash            String   @unique
-  otpCode              String
-  otpExpiresAt         DateTime
-  email                String
-  username             String
-  passwordHash         String
-  termsVersion         String
-  privacyPolicyVersion String
+  id                     String   @id @default(uuid())
+  tokenHash              String   @unique
+  otpCode                String
+  otpExpiresAt           DateTime
+  email                  String
+  username               String
+  passwordHash           String
+  termsVersion           String
+  privacyPolicyVersion   String
   specialCategoryVersion String
-  gender               Gender   @default(MALE)
-  country              String?
-  city                 String?
-  latitude             Float?
-  longitude            Float?
-  madhab               Madhab   @default(SHAFI)
-  language             String   @default("tr")
-  expiresAt            DateTime
-  createdAt            DateTime @default(now())
+  gender                 Gender   @default(MALE)
+  country                String?
+  city                   String?
+  latitude               Float?
+  longitude              Float?
+  madhab                 Madhab   @default(SHAFI)
+  language               String   @default("tr")
+  expiresAt              DateTime
+  createdAt              DateTime @default(now())
+  failedAttempts         Int      @default(0)
 
   @@map("otp_verifications")
 }
@@ -201,7 +200,7 @@ model UserConsent {
   version     String
   acceptedAt  DateTime    @default(now())
 
-  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, type, version])
   @@index([userId])
@@ -212,13 +211,13 @@ model UserConsent {
 //////////////////////////////////////////////////////
 
 model PasswordReset {
-  id         String   @id @default(uuid())
-  userId     String
-  tokenHash  String
-  expiresAt  DateTime
-  createdAt  DateTime @default(now())
-  failedAttempts Int  @default(0)
-  isUsed     Boolean  @default(false)
+  id             String   @id @default(uuid())
+  userId         String
+  tokenHash      String
+  expiresAt      DateTime
+  createdAt      DateTime @default(now())
+  failedAttempts Int      @default(0)
+  isUsed         Boolean  @default(false)
 
   @@index([userId])
   @@map("password_resets")
@@ -227,15 +226,15 @@ model PasswordReset {
 //////////////////////////////////////////////////////
 
 model UserAvatarConfig {
-  id           String   @id @default(uuid())
-  userId       String   @unique
-  gender       Gender   @default(MALE)
-  colors       Json     @default("{}")
-  accessories  Json     @default("{}")
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  id          String   @id @default(uuid())
+  userId      String   @unique
+  gender      Gender   @default(MALE)
+  colors      Json     @default("{}")
+  accessories Json     @default("{}")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
-  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("user_avatar_configs")
 }
@@ -243,14 +242,14 @@ model UserAvatarConfig {
 //////////////////////////////////////////////////////
 
 model UserXp {
-  id         String   @id @default(uuid())
-  userId     String   @unique
-  xp         Int      @default(0)
-  totalXp    Int      @default(0)
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  id        String   @id @default(uuid())
+  userId    String   @unique
+  xp        Int      @default(0)
+  totalXp   Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([xp])
   @@map("user_xp")
@@ -259,18 +258,18 @@ model UserXp {
 //////////////////////////////////////////////////////
 
 model UserStreak {
-  id                String   @id @default(uuid())
-  userId            String   @unique
-  currentStreak     Int      @default(0)
-  longestStreak     Int      @default(0)
-  streakFreezeCount Int      @default(0)
+  id                String    @id @default(uuid())
+  userId            String    @unique
+  currentStreak     Int       @default(0)
+  longestStreak     Int       @default(0)
+  streakFreezeCount Int       @default(0)
   lastActiveDate    DateTime?
-  recoverableStreak Int      @default(0)
+  recoverableStreak Int       @default(0)
   brokenSinceDate   DateTime? @db.Date
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
 
-  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([currentStreak])
   @@map("user_streaks")
@@ -279,17 +278,17 @@ model UserStreak {
 //////////////////////////////////////////////////////
 
 model PrayerQuestion {
-  id           String       @id @default(uuid())
-  prompt       String
-  explanation  String?
-  scope        QuestionScope @default(PRAYER)
-  prayerType   PrayerType?
-  guideId      String?
-  difficulty   Int          @default(1)
-  isActive     Boolean      @default(true)
-  createdAt    DateTime     @default(now())
-  updatedAt    DateTime     @updatedAt
-  options      PrayerQuestionOption[]
+  id            String                 @id @default(uuid())
+  prompt        String
+  explanation   String?
+  scope         QuestionScope          @default(PRAYER)
+  prayerType    PrayerType?
+  guideId       String?
+  difficulty    Int                    @default(1)
+  isActive      Boolean                @default(true)
+  createdAt     DateTime               @default(now())
+  updatedAt     DateTime               @updatedAt
+  options       PrayerQuestionOption[]
   quizQuestions PrayerQuizQuestion[]
 
   @@index([prayerType, isActive])
@@ -301,13 +300,13 @@ model PrayerQuestion {
 //////////////////////////////////////////////////////
 
 model PrayerQuestionOption {
-  id          String   @id @default(uuid())
-  questionId  String
-  text        String
-  isCorrect   Boolean  @default(false)
-  orderIndex  Int      @default(0)
-  createdAt   DateTime @default(now())
-  question    PrayerQuestion @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  id         String         @id @default(uuid())
+  questionId String
+  text       String
+  isCorrect  Boolean        @default(false)
+  orderIndex Int            @default(0)
+  createdAt  DateTime       @default(now())
+  question   PrayerQuestion @relation(fields: [questionId], references: [id], onDelete: Cascade)
 
   @@unique([questionId, orderIndex])
   @@index([questionId])
@@ -317,25 +316,25 @@ model PrayerQuestionOption {
 //////////////////////////////////////////////////////
 
 model PrayerQuizSubmission {
-  id                  String           @id @default(uuid())
-  userId              String
-  prayerType          PrayerType
-  prayerDate          DateTime         @db.Date
-  timezone            String
-  questionIds         String[]
-  windowStartsAt      DateTime
-  windowEndsAt        DateTime
-  markWindowEndsAt    DateTime
-  expiresAt           DateTime
-  status              PrayerQuizStatus @default(PENDING)
-  attemptCount        Int              @default(0)
-  submittedAt         DateTime?
-  prayerCompletionId  String?          @unique
-  createdAt           DateTime         @default(now())
-  updatedAt           DateTime         @updatedAt
-  user                User                @relation(fields: [userId], references: [id], onDelete: Cascade)
-  prayerCompletion    PrayerCompletion?   @relation(fields: [prayerCompletionId], references: [id], onDelete: SetNull)
-  questions           PrayerQuizQuestion[]
+  id                 String               @id @default(uuid())
+  userId             String
+  prayerType         PrayerType
+  prayerDate         DateTime             @db.Date
+  timezone           String
+  questionIds        String[]
+  windowStartsAt     DateTime
+  windowEndsAt       DateTime
+  markWindowEndsAt   DateTime
+  expiresAt          DateTime
+  status             PrayerQuizStatus     @default(PENDING)
+  attemptCount       Int                  @default(0)
+  submittedAt        DateTime?
+  prayerCompletionId String?              @unique
+  createdAt          DateTime             @default(now())
+  updatedAt          DateTime             @updatedAt
+  user               User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  prayerCompletion   PrayerCompletion?    @relation(fields: [prayerCompletionId], references: [id], onDelete: SetNull)
+  questions          PrayerQuizQuestion[]
 
   @@index([userId, prayerDate])
   @@index([userId, status])
@@ -366,20 +365,20 @@ model PrayerQuizQuestion {
 }
 
 model PrayerCompletion {
-  id                  String          @id @default(uuid())
+  id                  String                 @id @default(uuid())
   userId              String
   prayerType          PrayerType
-  prayerDate          DateTime        @db.Date
-  completedAt         DateTime        @default(now())
+  prayerDate          DateTime               @db.Date
+  completedAt         DateTime               @default(now())
   timezone            String
   status              PrayerCompletionStatus @default(ON_TIME)
   xpAwarded           Int
-  xpBeforePenalty     Int             @default(0)
-  isFirstOfDay        Boolean         @default(false)
-  streakContributed   Boolean         @default(false)
-  streakFreezeApplied Boolean         @default(false)
-  createdAt           DateTime        @default(now())
-  user                User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  xpBeforePenalty     Int                    @default(0)
+  isFirstOfDay        Boolean                @default(false)
+  streakContributed   Boolean                @default(false)
+  streakFreezeApplied Boolean                @default(false)
+  createdAt           DateTime               @default(now())
+  user                User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
   quizSubmission      PrayerQuizSubmission?
 
   @@unique([userId, prayerType, prayerDate])
@@ -390,20 +389,20 @@ model PrayerCompletion {
 }
 
 model UserPrayerStats {
-  id              String   @id @default(uuid())
-  userId          String   @unique
-  totalCompleted  Int      @default(0)
-  totalFajr       Int      @default(0)
-  totalDhuhr      Int      @default(0)
-  totalAsr        Int      @default(0)
-  totalMaghrib    Int      @default(0)
-  totalIsha       Int      @default(0)
-  totalJumuah     Int      @default(0)
-  totalTarawih    Int      @default(0)
-  totalEidFitr    Int      @default(0)
-  totalEidAdha    Int      @default(0)
-  totalOnTime     Int      @default(0)
-  totalLate       Int      @default(0)
+  id              String    @id @default(uuid())
+  userId          String    @unique
+  totalCompleted  Int       @default(0)
+  totalFajr       Int       @default(0)
+  totalDhuhr      Int       @default(0)
+  totalAsr        Int       @default(0)
+  totalMaghrib    Int       @default(0)
+  totalIsha       Int       @default(0)
+  totalJumuah     Int       @default(0)
+  totalTarawih    Int       @default(0)
+  totalEidFitr    Int       @default(0)
+  totalEidAdha    Int       @default(0)
+  totalOnTime     Int       @default(0)
+  totalLate       Int       @default(0)
   lastCompletedAt DateTime?
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
