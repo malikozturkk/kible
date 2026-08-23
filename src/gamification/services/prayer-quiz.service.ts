@@ -91,7 +91,13 @@ export class PrayerQuizService {
         throw new BusinessException('PRAYER_MARKING_LOCKED', HttpStatus.CONFLICT);
       }
       const questionMap = await this.loadQuestionsForSubmission(existing.questionIds);
-      return this.buildIssueResponse(existing.id, existing.expiresAt, PrayerQuizStatus.PENDING, refreshedQuestions, questionMap);
+      return this.buildIssueResponse(
+        existing.id,
+        existing.expiresAt,
+        PrayerQuizStatus.PENDING,
+        refreshedQuestions,
+        questionMap,
+      );
     }
 
     const pool: Array<{ id: string }> = await this.prisma.prayerQuestion.findMany({
@@ -195,9 +201,7 @@ export class PrayerQuizService {
     }
 
     const shownAt = now.toJSDate();
-    const deadlineAt = now
-      .plus({ seconds: PRAYER_QUIZ_QUESTION_TIME_LIMIT_SECONDS })
-      .toJSDate();
+    const deadlineAt = now.plus({ seconds: PRAYER_QUIZ_QUESTION_TIME_LIMIT_SECONDS }).toJSDate();
 
     const updated = await this.prisma.prayerQuizQuestion.update({
       where: { id: target.id },
@@ -331,13 +335,11 @@ export class PrayerQuizService {
         where: { submissionId: submission.id },
         orderBy: { orderIndex: 'asc' },
       });
-      const allCorrectNow = refreshed.every(
-        (q) => q.status === PrayerQuizQuestionStatus.CORRECT,
-      );
+      const allCorrectNow = refreshed.every((q) => q.status === PrayerQuizQuestionStatus.CORRECT);
 
       const response: AnswerPrayerQuestionResponseDto = {
         quizId: submission.id,
-        quizStatus: submission.status,
+        quizStatus: allCorrectNow ? PrayerQuizStatus.PASSED : submission.status,
         result: AnswerResultStatus.CORRECT,
         isLocked: false,
         question: this.toPublicQuestion(updated, questionMap.get(updated.questionId)!, now),
@@ -400,9 +402,7 @@ export class PrayerQuizService {
         q.status === PrayerQuizQuestionStatus.SHOWN &&
         q.deadlineAt &&
         now.toJSDate() >
-          new Date(
-            q.deadlineAt.getTime() + PRAYER_QUIZ_QUESTION_TIME_LIMIT_GRACE_SECONDS * 1000,
-          )
+          new Date(q.deadlineAt.getTime() + PRAYER_QUIZ_QUESTION_TIME_LIMIT_GRACE_SECONDS * 1000)
       ) {
         const updated = await this.prisma.prayerQuizQuestion.update({
           where: { id: q.id },
@@ -568,15 +568,14 @@ export class PrayerQuizService {
     const answeredAtIso = row.answeredAt ? row.answeredAt.toISOString() : null;
     const isExpiredByClock = Boolean(
       row.deadlineAt &&
-        now.toJSDate() >
-          new Date(row.deadlineAt.getTime() + PRAYER_QUIZ_QUESTION_TIME_LIMIT_GRACE_SECONDS * 1000),
+      now.toJSDate() >
+        new Date(row.deadlineAt.getTime() + PRAYER_QUIZ_QUESTION_TIME_LIMIT_GRACE_SECONDS * 1000),
     );
     const isExpired =
       row.status === PrayerQuizQuestionStatus.EXPIRED ||
       (row.status === PrayerQuizQuestionStatus.SHOWN && isExpiredByClock);
 
-    const isAnswerable =
-      row.status === PrayerQuizQuestionStatus.SHOWN && !isExpired;
+    const isAnswerable = row.status === PrayerQuizQuestionStatus.SHOWN && !isExpired;
     const canBeAnsweredAgain = false;
 
     return {
