@@ -10,6 +10,7 @@ import { OtpModule } from '../otp/otp.module';
 import { EmailModule } from '../email/email.module';
 import { PasswordResetService } from './password-reset.service';
 import { LoginAttemptService } from './services/login-attempt.service';
+import { NotificationsModule } from '../notifications/notifications.module';
 
 @Module({
   imports: [
@@ -23,6 +24,7 @@ import { LoginAttemptService } from './services/login-attempt.service';
     }),
     OtpModule,
     EmailModule,
+    NotificationsModule,
   ],
   controllers: [AuthController],
   providers: [AuthService, JwtStrategy, PasswordResetService, LoginAttemptService],

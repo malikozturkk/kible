@@ -1,5 +1,6 @@
 import {
   Injectable,
+  Logger,
   UnauthorizedException,
   ConflictException,
   BadRequestException,
@@ -11,6 +12,7 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import { StringValue } from 'ms';
 import { ConsentType, PasswordHashScheme, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { NotificationDispatchService } from '../notifications/services/notification-dispatch.service';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
 import type { ConsentVersionsMap } from '../consent/consent.constants';
@@ -45,6 +47,7 @@ const FOLLOW_USER_SELECT = {
 
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
   private readonly PEPPER = process.env.PEPPER;
   private readonly JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN;
   private readonly REFRESH_TOKEN_EXPIRES_IN_DAYS = 1;
@@ -55,6 +58,7 @@ export class AuthService {
     private otpService: OtpService,
     private configService: ConfigService,
     private loginAttemptService: LoginAttemptService,
+    private notificationDispatch: NotificationDispatchService,
   ) {}
 
   private getConsentVersions(): ConsentVersionsMap {
@@ -798,6 +802,29 @@ export class AuthService {
       },
     });
 
+    await this.notifyNewFollower(currentUserId, target.id);
+
     return { following: true };
+  }
+
+  private async notifyNewFollower(followerId: string, targetUserId: string): Promise<void> {
+    try {
+      const follower = await this.prisma.user.findUnique({
+        where: { id: followerId },
+        select: { username: true },
+      });
+      if (!follower) return;
+
+      await this.notificationDispatch.dispatch({
+        userId: targetUserId,
+        topic: 'NEW_FOLLOWER',
+        dedupeKey: `NEW_FOLLOWER:${new Date().toISOString().slice(0, 10)}:${followerId}`,
+        title: 'Yeni takipçin var',
+        body: `${follower.username} seni takip etmeye başladı.`,
+        url: `/profile/${follower.username}`,
+      });
+    } catch (error) {
+      this.logger.warn({ err: error as Error, targetUserId }, 'NEW_FOLLOWER_NOTIFICATION_FAILED');
+    }
   }
 }

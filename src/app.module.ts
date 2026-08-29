@@ -15,6 +15,7 @@ import { LeaderboardModule } from './leaderboard/leaderboard.module';
 import { AppThrottlerModule } from './common/throttler/throttler.module';
 import { AppLoggingModule } from './common/logging/logging.module';
 import { TelemetryModule } from './telemetry/telemetry.module';
+import { NotificationsModule } from './notifications/notifications.module';
 
 @Module({
   imports: [
@@ -33,6 +34,7 @@ import { TelemetryModule } from './telemetry/telemetry.module';
     ConsentModule,
     LeaderboardModule,
     TelemetryModule,
+    NotificationsModule,
     ScheduleModule.forRoot(),
   ],
   controllers: [AppController],

@@ -30,24 +30,27 @@ questions, `GET /gamification/prayer-questions/:type` fails with `INSUFFICIENT_P
 All of them are required except `TRUST_PROXY`, `LOG_LEVEL`, `COOKIE_SAMESITE` and `COOKIE_DOMAIN`.
 Missing values fail at different times, which matters when debugging a boot error.
 
-| Variable                                       | Used by                                                | Failure mode if missing                                                                 |
-| ---------------------------------------------- | ------------------------------------------------------ | --------------------------------------------------------------------------------------- |
-| `DATABASE_URL`                                 | `PrismaService`, `prisma.config.ts`                    | throws in the `PrismaService` constructor at boot                                       |
-| `JWT_SECRET`                                   | `AuthModule`, `OtpModule`, `JwtStrategy`               | Passport throws at boot; tokens would otherwise be unsigned                             |
-| `JWT_EXPIRES_IN`                               | access-token lifetime (`ms` format: `15m`, `1h`, `7d`) | `undefined` expiry → tokens never expire                                                |
-| `PEPPER`                                       | password hashing                                       | silently hashes `password + "undefined"` — **all hashes become wrong**                  |
-| `FRONTEND_BASE_URL`                            | password-reset link **and** the CORS origin            | link becomes `undefined/reset-password?...`; CORS falls back to `http://localhost:3000` |
-| `TRUST_PROXY`                                  | Express `trust proxy` → the IP the throttler keys on   | **optional**; empty = trust nothing. See below                                          |
-| `LOG_LEVEL`                                    | pino log level (`trace`…`fatal`)                       | **optional**; defaults to `info` when `NODE_ENV=production`, otherwise `debug`          |
-| `COOKIE_SAMESITE`                              | `SameSite` of the refresh-token cookie                 | **optional**; defaults to `lax`. `none` forces `Secure`                                 |
-| `COOKIE_DOMAIN`                                | `Domain` of the refresh-token cookie                   | **optional**; empty = host-only cookie                                                  |
-| `CONSENT_VERSION_TERMS_OF_SERVICE`             | `consentConfig`                                        | **throws at boot**: `CONSENT_VERSIONS_NOT_CONFIGURED`                                   |
-| `CONSENT_VERSION_PRIVACY_POLICY`               | `consentConfig`                                        | same                                                                                    |
-| `CONSENT_VERSION_SPECIAL_CATEGORY_DATA`        | `consentConfig`                                        | same                                                                                    |
-| `MAILJET_API_KEY` / `MAILJET_API_SECRET`       | `EmailService`                                         | OTP and reset emails fail at send time                                                  |
-| `MAILJET_SENDER_EMAIL` / `MAILJET_SENDER_NAME` | `EmailService`                                         | Mailjet rejects the message                                                             |
-| `MAILJET_OTP_TEMPLATE_ID`                      | OTP email                                              | `Number(undefined)` → `NaN` → Mailjet rejects                                           |
-| `MAILJET_FORGOT_PASSWORD_TEMPLATE_ID`          | reset email                                            | same                                                                                    |
+| Variable                                       | Used by                                                    | Failure mode if missing                                                                 |
+| ---------------------------------------------- | ---------------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| `DATABASE_URL`                                 | `PrismaService`, `prisma.config.ts`                        | throws in the `PrismaService` constructor at boot                                       |
+| `JWT_SECRET`                                   | `AuthModule`, `OtpModule`, `JwtStrategy`                   | Passport throws at boot; tokens would otherwise be unsigned                             |
+| `JWT_EXPIRES_IN`                               | access-token lifetime (`ms` format: `15m`, `1h`, `7d`)     | `undefined` expiry → tokens never expire                                                |
+| `PEPPER`                                       | password hashing                                           | silently hashes `password + "undefined"` — **all hashes become wrong**                  |
+| `FRONTEND_BASE_URL`                            | password-reset link **and** the CORS origin                | link becomes `undefined/reset-password?...`; CORS falls back to `http://localhost:3000` |
+| `TRUST_PROXY`                                  | Express `trust proxy` → the IP the throttler keys on       | **optional**; empty = trust nothing. See below                                          |
+| `LOG_LEVEL`                                    | pino log level (`trace`…`fatal`)                           | **optional**; defaults to `info` when `NODE_ENV=production`, otherwise `debug`          |
+| `COOKIE_SAMESITE`                              | `SameSite` of the refresh-token cookie                     | **optional**; defaults to `lax`. `none` forces `Secure`                                 |
+| `COOKIE_DOMAIN`                                | `Domain` of the refresh-token cookie                       | **optional**; empty = host-only cookie                                                  |
+| `CONSENT_VERSION_TERMS_OF_SERVICE`             | `consentConfig`                                            | **throws at boot**: `CONSENT_VERSIONS_NOT_CONFIGURED`                                   |
+| `CONSENT_VERSION_PRIVACY_POLICY`               | `consentConfig`                                            | same                                                                                    |
+| `CONSENT_VERSION_SPECIAL_CATEGORY_DATA`        | `consentConfig`                                            | same                                                                                    |
+| `MAILJET_API_KEY` / `MAILJET_API_SECRET`       | `EmailService`                                             | OTP and reset emails fail at send time                                                  |
+| `MAILJET_SENDER_EMAIL` / `MAILJET_SENDER_NAME` | `EmailService`                                             | Mailjet rejects the message                                                             |
+| `MAILJET_OTP_TEMPLATE_ID`                      | OTP email                                                  | `Number(undefined)` → `NaN` → Mailjet rejects                                           |
+| `MAILJET_FORGOT_PASSWORD_TEMPLATE_ID`          | reset email                                                | same                                                                                    |
+| `VAPID_PUBLIC_KEY`                             | `webPushConfig`, served by `GET /notifications/public-key` | **throws at boot**: `WEB_PUSH_NOT_CONFIGURED`                                           |
+| `VAPID_PRIVATE_KEY`                            | `webPushConfig` → `WebPushService`                         | same                                                                                    |
+| `VAPID_SUBJECT`                                | VAPID `sub` claim; must start with `mailto:` or `https://` | same, or `WEB_PUSH_INVALID_SUBJECT`                                                     |
 
 `PEPPER` is the dangerous one: it fails **silently**. Changing it invalidates every stored password
 hash, so treat it as immutable once any account exists.
@@ -276,3 +279,42 @@ yarn start:prod               # node dist/main
 Before a first deployment, someone will need to decide on: the production `FRONTEND_BASE_URL` value
 (it gates CORS), a production `PEPPER` and `JWT_SECRET`, and whether all three cron sweepers (OTP,
 password resets, expired refresh tokens) should run in every replica.
+
+## Web Push (VAPID)
+
+Notifications need a VAPID key pair. Generate one per environment:
+
+```bash
+npx web-push generate-vapid-keys
+```
+
+Put the pair in `.env` (`VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`) together with a `VAPID_SUBJECT`
+that starts with `mailto:` or `https://`. All three are required — the app throws
+`WEB_PUSH_NOT_CONFIGURED` at boot if any is missing, deliberately, so notifications can never fail
+silently.
+
+The public key is served to the browser by `GET /notifications/public-key`, so the frontend needs no
+VAPID env var of its own. Rotating the pair invalidates every existing `push_subscriptions` row: the
+browser must re-subscribe with the new key, and old endpoints start returning 403/410 and get pruned
+automatically.
+
+Push only works over HTTPS or on `localhost`. On `localhost` Chrome treats the origin as secure, so
+`yarn start:dev` + the frontend on `http://localhost:3000` is enough for local testing.
+
+### Verifying the chain
+
+Use the **"Deneme bildirimi gönder"** button on `/settings/notifications`
+(`POST /notifications/test`) rather than replaying a real trigger. Real triggers are deduped per
+calendar day, so unfollowing and re-following the same account, or waiting through the same prayer
+twice, produces nothing the second time — which looks identical to a broken setup.
+
+If the row in `notification_deliveries` says `SENT` but nothing appeared on screen, the push left
+the server and the browser accepted it; the problem is downstream:
+
+- **macOS**: System Settings → Notifications → the browser must be allowed. A browser-level
+  `granted` is not enough, and this failure is completely silent.
+- **Focus / Do Not Disturb** suppresses the banner without any error.
+- The service worker must be active — check `chrome://serviceworker-internals` or DevTools →
+  Application → Service Workers for `/sw.js`.
+- Two profiles on one machine are two separate subscriptions; check that the _receiving_ profile is
+  the one with a `push_subscriptions` row.

@@ -18,6 +18,8 @@ export const THROTTLE_REFRESH = { ttl: MINUTE, limit: 20 };
 export const THROTTLE_CLIENT_ERRORS = { ttl: MINUTE, limit: 10 };
 
 export const THROTTLE_PUBLIC_PRAYER_TIMES = { ttl: MINUTE, limit: 120 };
+export const THROTTLE_NOTIFICATION_SUBSCRIPTION = { ttl: MINUTE, limit: 10 };
+export const THROTTLE_NOTIFICATION_TEST = { ttl: MINUTE, limit: 5 };
 
 export const LOGIN_MAX_FAILED_ATTEMPTS = 10;
 export const LOGIN_LOCK_DURATION_MS = 15 * MINUTE;

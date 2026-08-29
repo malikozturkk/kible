@@ -836,9 +836,11 @@ The caller's complete personal data as one JSON document — KVKK m.11/d, the ri
 `Content-Disposition: attachment; filename="namazgo-verilerim.json"`.
 
 Sections: `meta`, `profile`, `account`, `consents`, `avatarConfig`, `gamification`, `prayers`,
-`quizzes`, `fasting`, `social`, `notifications`.
+`quizzes`, `social`, `notifications`. `meta.version` is **2**: version 1 also carried `fasting` and
+`quizzes.mastery`, dropped along with their (always empty, never written) tables in
+`20260829200000_web_push_notifications`.
 
-Deliberately **excluded**: the password hash, refresh/reset token hashes, OTP codes, and push
+Deliberately **excluded**: the password hash, refresh/reset token hashes, OTP codes, and the push
 subscription keys (`p256dh` / `auth`). Those are security material, not the user's own data —
 handing them out in an export would be a credential disclosure, not a transparency measure.
 
@@ -850,6 +852,110 @@ data.
 The public subset: level (`level`, `badgeKey`, `progressPercent` only), streak (`current`,
 `longest`), prayers (`totalCompleted`, `breakdown`, `punctuality`), `social`, and `isSelf`. Errors:
 `USER_NOT_FOUND` (404).
+
+---
+
+## Notifications — `src/notifications/notifications.controller.ts`
+
+Web Push. Every route is behind `JwtAuthGuard`, so it inherits the consent gate.
+
+Two independent layers, and confusing them is the main way to get this wrong:
+
+- **Browser permission** — device-level, only the user can grant it, lives in the browser. Without
+  it nothing can be displayed at all.
+- **Topic preferences** — the KVKK consent record, stored server-side, device-independent. Without
+  it the server never sends.
+
+### `GET /notifications/public-key` — `JWT`
+
+The VAPID public key the browser needs for `pushManager.subscribe()`. Not secret, but served from
+the API rather than baked into the frontend so rotating the key does not need a frontend rebuild.
+
+```jsonc
+{ "publicKey": "B..." }
+```
+
+### `GET /notifications/preferences` — `JWT`
+
+Every topic in the catalog with the caller's consent state. Topics with no row come back as
+`enabled: false` — a missing row _is_ "no consent". `title` / `description` come from the server so
+the KVKK disclosure text has exactly one source.
+
+```jsonc
+{
+  "topics": [
+    {
+      "topic": "PRAYER_TIME",
+      "title": "Namaz vakti girdi",
+      "description": "Bulunduğun ilin vakti girdiğinde haber verir.",
+      "enabled": false,
+      "optedInAt": null, // rıza verildiği an
+      "optedOutAt": null, // rıza geri çekildiği an
+    },
+  ],
+}
+```
+
+### `GET /notifications/feed` — `JWT`
+
+Query: `limit?` (1–50, default 50). Returns
+`{ items: [{ id, topic, title, body, url, read, sentAt }], unreadCount }`, newest first. This is the
+bell in the sidebar.
+
+Independent of the push outcome: a notification whose push failed, whose subscription died, or that
+had no device to go to (`NO_DEVICE`) still appears here — that is the point of an in-app centre. It
+is **not** independent of consent: a topic the user never enabled produces no delivery row, so it
+never shows up. History is bounded by the 30-day prune.
+
+### `POST /notifications/feed/read` — `JWT`
+
+No body. Marks every unread notification read and returns the refreshed feed. The frontend calls it
+when the panel opens, so the badge clears on open rather than per item.
+
+### `PUT /notifications/preferences` — `JWT`
+
+Body: `{ "topic": "PRAYER_TIME", "enabled": true }`. Returns the full updated list. Errors:
+`INVALID_NOTIFICATION_TOPIC`, `INVALID_ENABLED` (both `VALIDATION_ERROR` / 400).
+
+Opting out **does not delete the row** — it flips `enabled` and stamps `optedOutAt`, because the
+consent history has to stay provable.
+
+### `POST /notifications/subscriptions` — `JWT` · throttled 10 req/min
+
+Body: `{ endpoint, p256dh, auth, userAgent? }` — the four fields taken from the browser's
+`PushSubscription`, not the raw object (`forbidNonWhitelisted` would reject `expirationTime`).
+`endpoint` must be an `https` URL. Idempotent: the same endpoint upserts, resets `failureCount` and
+transfers ownership if a different user subscribes on a shared device.
+
+### `POST /notifications/test` — `JWT` · throttled 5 req/min
+
+No body. Sends a fixed test notification to every device registered for the caller and returns
+`{ "delivered": <deviceCount> }`; `0` means the account has no push subscription yet.
+
+Deliberately **not** routed through `dispatch()`. It skips the dedupe reservation (a second press
+must actually send, otherwise it hides the very thing being tested) and skips the topic consent
+check (the button press _is_ the request). A device subscription is still required.
+
+### `DELETE /notifications/subscriptions` — `JWT` · `204` · throttled 10 req/min
+
+Body: `{ endpoint }`. Removes this device only; topic preferences are untouched, so re-enabling the
+device restores the previous choices.
+
+### What actually sends
+
+`PrayerNotificationScheduler` runs every minute. `PRAYER_TIME` fires as the prayer starts;
+`MARK_WINDOW_CLOSING` fires `MARK_WINDOW_CLOSING_LEAD_MINUTES` (20) before `markWindowEndsAt` and
+only if the prayer is still unmarked; `STREAK_AT_RISK` fires 90 minutes before the day's last
+markable moment when the user has an active streak and zero completions. `NEW_FOLLOWER` is
+event-driven from the follow endpoint, not scheduled.
+
+All four go through `NotificationDispatchService.dispatch()`, which reserves the send in
+`notification_deliveries` before sending — see `docs/DATA-MODEL.md`.
+
+A consequence worth knowing while testing: the dedupe key is per **calendar day**, so
+`NEW_FOLLOWER:<date>:<followerId>` sends once even if the same person unfollows and follows again
+that day. Use `POST /notifications/test` to verify the delivery chain instead of replaying a real
+trigger.
 
 ---
 

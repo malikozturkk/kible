@@ -195,6 +195,7 @@ src/
   leaderboard/                # XP / streak / prayer-count rankings (metric × scope × period)
   guides/                     # static step-by-step wudu/ghusl/prayer guides (strategy pattern)
   questions/                  # guide-quiz check (shares the question bank, scope = GUIDE)
+  notifications/              # Web Push: abonelikler, KVKK başlık rızaları, cron tetikleyici
   telemetry/                  # POST /telemetry/client-errors — frontend error reports → error log
   config/consent.config.ts    # fails fast if consent version env vars are missing
 ```
@@ -287,6 +288,31 @@ are warnings. Run `yarn lint` before finishing.
   İmameyn position Diyanet itself publishes; ratio 2 is Abu Hanifa's personal view and appears on no
   Turkish timetable. Do not re-derive adhan params from `User.madhab` — add a profile row instead.
   `User.madhab` stays: it is still special-category data and still drives guide/rakat content.
+- **All push notifications go through `NotificationDispatchService.dispatch()`.** It is the only
+  place that sends: it reserves the send by inserting the `notification_deliveries` row **first**
+  (the `(userId, dedupeKey)` unique constraint is what makes a duplicate impossible across restarts
+  and replicas), re-reads consent, then sends and records the outcome. Calling `WebPushService`
+  directly skips the consent check and the dedupe, so don't. When **consent is missing** the
+  reservation must be released — a stale row would block that notification for the rest of the day
+  once the user opts in. A missing _device_ is different: the row **stays** (status `NO_DEVICE`),
+  because it is also the in-app feed entry and the user should see the notification next time they
+  open the app even if no push could be delivered.
+- **`notification_deliveries` is the in-app notification feed, not just a ledger.** It carries
+  `title` / `body` / `url` / `readAt`, and `NotificationFeedService` reads it for the bell in the
+  sidebar. That is why a row survives a failed or undeliverable push: the feed is independent of the
+  push outcome. It is _not_ independent of consent — a topic the user never enabled produces no row
+  at all, so it cannot appear in the feed either. The 30-day prune bounds the feed's history.
+- **Notification consent is opt-in, per topic, and never inferred.**
+  `NotificationPreference.enabled` defaults to `false` and a missing row means disabled; nothing
+  writes `true` except an explicit `PUT /notifications/preferences`. Rows are never deleted on
+  opt-out — `optedInAt` / `optedOutAt` are the KVKK audit trail. Prayer reminders are
+  religious-practice data (KVKK m.6), which is why `/explicit-consent` §3 keeps them explicitly
+  **outside** the registration consent.
+- **The notification cron scales on coordinates, not users.** `PrayerNotificationScheduler` runs
+  every minute and memoizes prayer slots per `(lat, lon, date)` within a tick. Since coordinates
+  come from the 81-province catalog and the madhab no longer moves any time, that is at most 81
+  `adhan` computations per tick regardless of user count. Do not move the computation inside the
+  per-user loop.
 - **A prayer is completed only by passing its quiz.** There is no "mark as prayed" endpoint. 3
   questions, 25 s each (+2 s grace). A **wrong** answer and a **lapsed timer** are equivalent: both
   retire the submission as `FAILED`, lock the remaining questions, and close that prayer for that
@@ -418,11 +444,12 @@ These are verified facts about the current tree, not bugs to fold into an unrela
   password-reset link, so it must stay a bare `scheme://host:port`; there is no list/regex support,
   so a second frontend origin needs a code change. The port is configurable via `PORT`, defaulting
   to `3000`.
-- **Five tables have no writer.** `push_subscriptions`, `notification_preferences`,
-  `notification_deliveries`, `fasting_days` and `question_mastery` were created by
-  `20260822115649_audit_fixes_and_features` for the Web Push, Ramazan and quiz-mastery features,
-  none of which are built. Only the KVKK export reads them, so those export sections are always
-  empty. See `docs/DATA-MODEL.md`. Do not assume a mastery/notification record exists.
+- **Ramazan modu and quiz mastery are not built and no longer have tables.** `fasting_days` and
+  `question_mastery` were scaffolded by `20260822115649_audit_fixes_and_features`, never got a
+  writer, and were dropped (empty) by `20260829200000_web_push_notifications` along with the
+  `FastingStatus` enum. `fasting` in `/worship` is computed live by `FastingProgressService` and is
+  unrelated — it still works. Rebuilding either feature means a fresh migration for what it actually
+  needs, not resurrecting the old shape.
 - Test coverage is effectively nil: `src/app.controller.spec.ts` is the **only** spec in the tree
   (verified by `find src -name '*.spec.ts'`). This file and `docs/ARCHITECTURE.md` previously also
   named `src/common/filters/http-exception.filter.spec.ts`; that file does not exist, so

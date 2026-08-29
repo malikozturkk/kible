@@ -76,24 +76,18 @@ enum PasswordHashScheme {
   HMAC_BCRYPT
 }
 
-enum FastingStatus {
-  FASTED
-  EXCUSED
-  MISSED
-}
-
 enum NotificationTopic {
   PRAYER_TIME
   MARK_WINDOW_CLOSING
   STREAK_AT_RISK
-  RAMADAN_SUHOOR
-  RAMADAN_IFTAR
+  NEW_FOLLOWER
 }
 
 enum NotificationDeliveryStatus {
   SENT
   FAILED
   SUBSCRIPTION_GONE
+  NO_DEVICE
 }
 
 model User {
@@ -137,11 +131,10 @@ model User {
   prayerStats        UserPrayerStats?
   streakFreezeUsages StreakFreezeUsage[]
 
-  fastingDays FastingDay[]
+  // notifications
   pushSubscriptions       PushSubscription[]
   notificationPreferences NotificationPreference[]
   notificationDeliveries  NotificationDelivery[]
-  questionMastery QuestionMastery[]
 
   @@map("users")
 }
@@ -323,7 +316,6 @@ model PrayerQuestion {
   updatedAt     DateTime               @updatedAt
   options       PrayerQuestionOption[]
   quizQuestions PrayerQuizQuestion[]
-  mastery       QuestionMastery[]
 
   @@index([prayerType, isActive])
   @@index([isActive])
@@ -459,27 +451,6 @@ model StreakFreezeUsage {
 }
 
 //////////////////////////////////////////////////////
-// Ramazan modu
-//////////////////////////////////////////////////////
-
-model FastingDay {
-  id        String        @id @default(uuid())
-  userId    String
-  fastDate  DateTime      @db.Date
-  status    FastingStatus @default(FASTED)
-  xpAwarded Int           @default(0)
-  hijriYear Int
-  createdAt DateTime      @default(now())
-  updatedAt DateTime      @updatedAt
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@unique([userId, fastDate])
-  @@index([userId, hijriYear])
-  @@map("fasting_days")
-}
-
-//////////////////////////////////////////////////////
 // Bildirim altyapısı (Web Push)
 //////////////////////////////////////////////////////
 
@@ -523,36 +494,17 @@ model NotificationDelivery {
   topic     NotificationTopic
   dedupeKey String
   status    NotificationDeliveryStatus
+  title     String
+  body      String
+  url       String
+  readAt    DateTime?
   sentAt    DateTime                   @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, dedupeKey])
   @@index([userId, sentAt])
+  @@index([userId, readAt])
   @@index([sentAt])
   @@map("notification_deliveries")
-}
-
-//////////////////////////////////////////////////////
-// Quiz bilgi ölçümü (aralıklı tekrar)
-//////////////////////////////////////////////////////
-
-model QuestionMastery {
-  id             String    @id @default(uuid())
-  userId         String
-  questionId     String
-  correctStreak  Int       @default(0)
-  totalCorrect   Int       @default(0)
-  totalWrong     Int       @default(0)
-  lastAnsweredAt DateTime?
-  dueAt          DateTime  @default(now())
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
-
-  user     User           @relation(fields: [userId], references: [id], onDelete: Cascade)
-  question PrayerQuestion @relation(fields: [questionId], references: [id], onDelete: Cascade)
-
-  @@unique([userId, questionId])
-  @@index([userId, dueAt])
-  @@map("question_mastery")
 }

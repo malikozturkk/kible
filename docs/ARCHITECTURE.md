@@ -46,6 +46,8 @@ AppModule
 ├─ GuidesModule
 │  └─ QuestionsModule      → QuestionsController is registered through this import
 ├─ WorshipModule           also serves the app's only unauthenticated worship route
+├─ NotificationsModule     (Web Push; reuses PrayerTimesService)
+│  └─ WorshipModule
 ├─ UsersModule
 ├─ LeaderboardModule
 ├─ TelemetryModule         POST /telemetry/client-errors → pino error log
@@ -259,6 +261,20 @@ rather than one fat service:
   unauthenticated `GET /worship/public/prayer-times` route: it reuses `PrayerTimesService`,
   `resolveTimezone()` and `toHijriLabel()` but touches neither Prisma nor the request user, so its
   result depends only on (province, date).
+
+**Notifications.** `src/notifications/` owns Web Push end to end. Three ideas carry the design:
+
+- `NotificationDispatchService` is the **only** sender. It reserves the send by writing the
+  `notification_deliveries` row first — the `(userId, dedupeKey)` unique constraint is the
+  idempotency mechanism, so a duplicate cron tick or a second replica cannot double-send — then
+  re-reads consent, sends, and records the outcome. `WebPushService` (the sole `web-push` wrapper)
+  is never called directly from anywhere else.
+- `PrayerNotificationScheduler` memoizes prayer slots per `(lat, lon, date)` inside a tick. Prayer
+  times depend on coordinates, not on the user, and coordinates come from the 81-province catalog —
+  so a tick costs at most 81 `adhan` computations no matter how many users there are.
+- `AuthModule` imports `NotificationsModule` (not the reverse) so the follow endpoint can fire
+  `NEW_FOLLOWER`. That notification is deliberately fire-and-forget: a push failure must not fail
+  the follow.
 
 **Domain object.** `LevelCalculator` (`gamification/domain/`) is pure and static — XP curve, level
 resolution and badge keys with no I/O. It is reused by `UserStatsService`.

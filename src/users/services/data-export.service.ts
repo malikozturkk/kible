@@ -38,8 +38,6 @@ export class DataExportService {
       prayerStats,
       prayerCompletions,
       quizSubmissions,
-      questionMastery,
-      fastingDays,
       streakFreezeUsages,
       following,
       followers,
@@ -98,22 +96,6 @@ export class DataExportService {
         },
         orderBy: { prayerDate: 'asc' },
       }),
-      this.prisma.questionMastery.findMany({
-        where: { userId },
-        select: {
-          questionId: true,
-          correctStreak: true,
-          totalCorrect: true,
-          totalWrong: true,
-          lastAnsweredAt: true,
-          dueAt: true,
-        },
-      }),
-      this.prisma.fastingDay.findMany({
-        where: { userId },
-        select: { fastDate: true, status: true, xpAwarded: true, hijriYear: true },
-        orderBy: { fastDate: 'asc' },
-      }),
       this.prisma.streakFreezeUsage.findMany({
         where: { userId },
         select: { protectedDate: true, usedAt: true, reason: true },
@@ -143,12 +125,12 @@ export class DataExportService {
     return {
       meta: {
         format: 'namazgo-kvkk-export',
-        version: 1,
+        version: 2,
         generatedAt: new Date().toISOString(),
         note:
           'Bu belge KVKK m.11 kapsamında hesabınıza ait verilerin kopyasıdır. ' +
-          'Parola, oturum anahtarları ve bildirim abonelik anahtarları güvenlik gereği ' +
-          'dahil edilmemiştir.',
+          'Parola, oturum anahtarları ve bildirim abonelik anahtarları güvenlik ' +
+          'gereği dahil edilmemiştir.',
       },
       profile: user,
       account: credentialMeta,
@@ -156,8 +138,7 @@ export class DataExportService {
       avatarConfig,
       gamification: { xp, streak, prayerStats, streakFreezeUsages },
       prayers: prayerCompletions,
-      quizzes: { submissions: quizSubmissions, mastery: questionMastery },
-      fasting: fastingDays,
+      quizzes: { submissions: quizSubmissions },
       social: {
         following: following.map((f) => ({
           username: f.following.username,
