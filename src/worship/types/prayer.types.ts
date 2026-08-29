@@ -1,5 +1,9 @@
 import { DateTime } from 'luxon';
-import type { CalculationMethodKey, MadhabKey } from '../constants/prayer-options.constants';
+import type {
+  AsrShadowRatio,
+  CalculationMethodKey,
+  PrayerCalculationProfileKey,
+} from '../constants/prayer-calculation.constants';
 
 export type PrayerName = 'fajr' | 'sunrise' | 'dhuhr' | 'asr' | 'maghrib' | 'isha';
 
@@ -24,7 +28,8 @@ export interface MetaDTO {
   hijriDate: string | null;
   hijriMonthName: string | null;
   calculationMethod: CalculationMethodKey;
-  madhab: MadhabKey;
+  calculationProfile: PrayerCalculationProfileKey;
+  asrShadowRatio: AsrShadowRatio;
 }
 
 export type PrayerTimesRecord = Record<PrayerName, PrayerTimeDTO>;

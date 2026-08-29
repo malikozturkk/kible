@@ -2,7 +2,7 @@ import { Injectable, BadRequestException } from '@nestjs/common';
 import { DateTime } from 'luxon';
 import { PrismaService } from '../prisma/prisma.service';
 import { AdhanParams, WorshipResponseDTO } from './types/prayer.types';
-import { PrayerTimeFactory } from './factories/prayer-time.factory';
+import { PrayerTimesService } from './services/prayer-times.service';
 import { PrayerCountdownService } from './services/prayer-countdown.service';
 import { FastingProgressService } from './services/fasting-progress.service';
 import { DayProgressService } from './services/day-progress.service';
@@ -14,7 +14,7 @@ import { toHijriLabel } from '../gamification/helpers/hijri.helper';
 export class WorshipService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly prayerTimeFactory: PrayerTimeFactory,
+    private readonly prayerTimesService: PrayerTimesService,
     private readonly countdownService: PrayerCountdownService,
     private readonly fastingProgressService: FastingProgressService,
     private readonly dayProgressService: DayProgressService,
@@ -39,30 +39,21 @@ export class WorshipService {
 
     const latitude = user.latitude;
     const longitude = user.longitude;
-    const madhab = user.madhab;
     const timezone = resolveTimezone(latitude, longitude);
 
     const zonedDate = DateTime.fromISO(date, { zone: timezone });
     const now = DateTime.now().setZone(timezone);
 
-    const today = this.prayerTimeFactory.buildPrayerTimesWithMeta(
+    const day = this.prayerTimesService.getDay({
       latitude,
       longitude,
-      zonedDate.toJSDate(),
-      { madhab },
-    );
-    const tomorrow = this.prayerTimeFactory.buildPrayerTimesWithMeta(
-      latitude,
-      longitude,
-      zonedDate.plus({ days: 1 }).toJSDate(),
-      { madhab },
-    );
+      date: zonedDate,
+      timezone,
+      madhab: user.madhab,
+    });
 
-    const todayPrayerTimes = today.prayerTimes;
-    const tomorrowPrayerTimes = tomorrow.prayerTimes;
-
-    const entries = this.prayerTimeFactory.toPrayerEntries(todayPrayerTimes, timezone);
-    const tomorrowFajr = DateTime.fromJSDate(tomorrowPrayerTimes.fajr, { zone: timezone });
+    const entries = day.entries;
+    const tomorrowFajr = day.tomorrowEntries.find((e) => e.key === 'fajr')!.time;
 
     const nextPrayer = this.countdownService.resolveNextPrayer(entries, now, tomorrowFajr);
     const lastPrayer = this.countdownService.resolveLastPrayer(entries, now);
@@ -76,10 +67,9 @@ export class WorshipService {
 
     const times = this.responseMapper.buildTimesRecord(
       entries,
-      tomorrowPrayerTimes,
+      day.tomorrowEntries,
       nextPrayer,
       now,
-      timezone,
     );
     const hijri = toHijriLabel(zonedDate);
 
@@ -91,8 +81,9 @@ export class WorshipService {
         gregorianDate: zonedDate.toISODate(),
         hijriDate: hijri.date,
         hijriMonthName: hijri.monthName,
-        calculationMethod: today.method,
-        madhab: today.madhab,
+        calculationMethod: day.profile.method,
+        calculationProfile: day.profile.key,
+        asrShadowRatio: day.profile.asrShadowRatio,
       },
       times,
       nextPrayer: nextPrayer.name,

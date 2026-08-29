@@ -189,7 +189,8 @@ src/
   email/                      # Mailjet wrapper
   consent/                    # ToS / privacy-policy versioning + ConsentGuard (via JwtAuthGuard)
   users/                      # user search, public/self stats
-  worship/                    # prayer times, countdowns, fasting + day progress
+  worship/                    # prayer times (PrayerTimesService = the single source),
+                              # countdowns, fasting + day progress
   gamification/               # daily prayer slots, quiz, completion, XP, streak
   leaderboard/                # XP / streak / prayer-count rankings (metric × scope × period)
   guides/                     # static step-by-step wudu/ghusl/prayer guides (strategy pattern)
@@ -274,10 +275,18 @@ are warnings. Run `yarn lint` before finishing.
   `isWithinMarkWindow()`, not `isWithinWindow()` — the latter now answers only "would this be on
   time?". Streaks ignore the distinction entirely. Tarawih/Eid never shorten another slot's cutoff.
   For Jumuah and the Eid prayers the two ends coincide, so they can never be recorded as `LATE`.
-- **Calculation method is always `Turkey`; the madhab is always the user's.** Both `/worship` and
-  `PrayerScheduleService` (gamification) now pass the stored `madhab`. Gamification used to hardcode
-  `Shafi` (commit `823c539`), which put the two screens more than an hour apart for Hanafi users and
-  closed Dhuhr's markable window at the Shafi Asr. Keep the two in sync — they must agree.
+- **`PrayerTimesService` is the only prayer-time source, and the madhab does not change the times.**
+  `src/worship/services/prayer-times.service.ts` is the single place `new PrayerTimes(...)` is
+  called; `/worship`, `/worship/public/prayer-times` and every `/gamification` route go through it,
+  so all three return identical times. The parameters come from the profile table in
+  `src/worship/constants/prayer-calculation.constants.ts`: both `SHAFI` and `HANAFI` map to
+  `DIYANET` (method `Turkey`, Asr shadow ratio **1**). `adhan`'s `params.madhab` is a shadow-ratio
+  switch, not an identity — assigning `User.madhab` onto it (which the old `PrayerTimeFactory` did)
+  computed Asr at ratio 2 for Hanafi users: 17:50 in İstanbul on 2026-08-29 where Diyanet publishes
+  16:51, and it left Dhuhr markable an hour after Asr had begun. Ratio 1 is _asr-ı evvel_, the
+  İmameyn position Diyanet itself publishes; ratio 2 is Abu Hanifa's personal view and appears on no
+  Turkish timetable. Do not re-derive adhan params from `User.madhab` — add a profile row instead.
+  `User.madhab` stays: it is still special-category data and still drives guide/rakat content.
 - **A prayer is completed only by passing its quiz.** There is no "mark as prayed" endpoint. 3
   questions, 25 s each (+2 s grace). A **wrong** answer and a **lapsed timer** are equivalent: both
   retire the submission as `FAILED`, lock the remaining questions, and close that prayer for that

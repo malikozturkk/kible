@@ -377,18 +377,21 @@ mezhep and worship records are the app's core function and cannot be processed u
 
 ## Worship — `src/worship/worship.controller.ts`
 
-### `GET /worship/public/prayer-times?city=&date=&days=&madhab=` — **no guard**
+### `GET /worship/public/prayer-times?city=&date=&days=` — **no guard**
 
 The only unauthenticated worship route. It exists so the frontend can statically render its
 `/namaz-vakitleri/[sehir]` SEO pages without a session; it reads nothing from the database and
 returns no personal data.
 
-| Query    | Required | Notes                                                                                   |
-| -------- | -------- | --------------------------------------------------------------------------------------- |
-| `city`   | yes      | Province name, matched case/accent-insensitively against the 81-province catalog        |
-| `date`   | no       | `YYYY-MM-DD`, `@IsCalendarDate()`. Defaults to today **in the province's own timezone** |
-| `days`   | no       | Calendar length, 1–31, default 7                                                        |
-| `madhab` | no       | `hanafi` \| `shafi`; anything else falls back to `DEFAULT_MADHAB` (`Shafi`)             |
+| Query  | Required | Notes                                                                                   |
+| ------ | -------- | --------------------------------------------------------------------------------------- |
+| `city` | yes      | Province name, matched case/accent-insensitively against the 81-province catalog        |
+| `date` | no       | `YYYY-MM-DD`, `@IsCalendarDate()`. Defaults to today **in the province's own timezone** |
+| `days` | no       | Calendar length, 1–31, default 7                                                        |
+
+There is no `madhab` query parameter. It existed and was removed: prayer times are always computed
+with the `DIYANET` profile, so the parameter could only ever produce a second, wrong answer for the
+same city. `forbidNonWhitelisted: true` means sending it now returns **400 `VALIDATION_ERROR`**.
 
 An unknown province returns **404 `CITY_NOT_FOUND`** (`findTrCity()` in
 `src/auth/constants/tr-cities.constants.ts` — the non-throwing sibling of
@@ -399,7 +402,8 @@ one Next.js server refreshes all 81 province pages in bursts during ISR revalida
 
 Handled by `PublicPrayerTimesService` (`src/worship/services/`), which is deliberately separate from
 `WorshipService.adhan()`: it has no user, no countdown, no fasting progress and no day progress, so
-its output is a pure function of (province, date, madhab) and is safe to cache and prerender.
+its output is a pure function of (province, date) and is safe to cache and prerender. The times
+themselves come from the shared `PrayerTimesService`, so they match `GET /worship` exactly.
 
 ```jsonc
 {
@@ -408,7 +412,8 @@ its output is a pure function of (province, date, madhab) and is safe to cache a
   "longitude": 28.9784,
   "timezone": "Europe/Istanbul",
   "calculationMethod": "Turkey",
-  "madhab": "Shafi",
+  "calculationProfile": "DIYANET",
+  "asrShadowRatio": 1, // Diyanet publishes asr-ı evvel; never varies
   "today": {/* same shape as days[0] */},
   "days": [
     {
@@ -446,9 +451,10 @@ the response claimed to describe `1901-01-01`. Nothing was exploitable — it is
 — but it burned computation and returned nonsense. The same validator guards
 `/gamification/daily-prayers` and `/gamification/prayer-history`.
 
-Coordinates, madhab and timezone all come from the authenticated user. `meta.hijriDate` /
-`meta.hijriMonthName` are produced by `toHijriLabel()`, anchored to 12:00 UTC of the **user's**
-calendar day, so they do not shift with the server's `TZ`.
+Coordinates and timezone come from the authenticated user. The user's `madhab` is read but every
+madhab maps to the same `DIYANET` calculation profile, so it does not change any time — see
+`docs/DOMAIN.md` §1. `meta.hijriDate` / `meta.hijriMonthName` are produced by `toHijriLabel()`,
+anchored to 12:00 UTC of the **user's** calendar day, so they do not shift with the server's `TZ`.
 
 ```jsonc
 {
@@ -460,7 +466,8 @@ calendar day, so they do not shift with the server's `TZ`.
     "hijriDate": "…",
     "hijriMonthName": "…",
     "calculationMethod": "Turkey",
-    "madhab": "Hanafi",
+    "calculationProfile": "DIYANET",
+    "asrShadowRatio": 1,
   },
   "times": {
     "fajr": {

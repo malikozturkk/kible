@@ -42,7 +42,7 @@ AppModule
 │  │  └─ EmailModule
 │  └─ EmailModule
 ├─ GamificationModule
-│  └─ WorshipModule        (reuses PrayerTimeFactory)
+│  └─ WorshipModule        (reuses PrayerTimesService)
 ├─ GuidesModule
 │  └─ QuestionsModule      → QuestionsController is registered through this import
 ├─ WorshipModule           also serves the app's only unauthenticated worship route
@@ -236,9 +236,14 @@ then call `PrayerStepBuilder.syncTotalSteps()` to normalize `totalSteps`. Adding
 adding an enum member, a strategy class, and registering it in both `GuidesModule.providers` and the
 `GuidesService` strategy array.
 
-**Factory — prayer times.** `PrayerTimeFactory` is the single place adhan is configured:
-`CalculationMethod[method]` (default `Turkey`), `Madhab[madhab]` (default `Shafi`),
-`HighLatitudeRule.MiddleOfTheNight`. `WorshipModule` exports it so `GamificationModule` reuses it.
+**Single source — prayer times.** `PrayerTimesService`
+(`src/worship/services/prayer-times.service.ts`) is the only place adhan is configured and the only
+place `new PrayerTimes(...)` is called. It resolves a profile from
+`src/worship/constants/prayer-calculation.constants.ts` (`Turkey` + Asr shadow ratio 1 +
+`HighLatitudeRule.MiddleOfTheNight`) and returns today's and tomorrow's times together, both as
+zoned `PrayerEntry[]` and as the raw adhan objects the slot builder needs. `WorshipModule` exports
+it so `GamificationModule` reuses it. Do not construct prayer times anywhere else — three endpoints
+disagreeing on Asr is exactly what this consolidation fixed.
 
 **Service decomposition.** The two largest modules split their work into single-purpose services
 rather than one fat service:
@@ -251,9 +256,9 @@ rather than one fat service:
   `GamificationService` is a thin facade the controller talks to.
 - `worship/services/` — `PrayerCountdownService`, `FastingProgressService`, `DayProgressService`,
   plus `WorshipResponseMapper` for the response shape. `PublicPrayerTimesService` serves the
-  unauthenticated `GET /worship/public/prayer-times` route: it reuses `PrayerTimeFactory`,
+  unauthenticated `GET /worship/public/prayer-times` route: it reuses `PrayerTimesService`,
   `resolveTimezone()` and `toHijriLabel()` but touches neither Prisma nor the request user, so its
-  result depends only on (province, date, madhab).
+  result depends only on (province, date).
 
 **Domain object.** `LevelCalculator` (`gamification/domain/`) is pure and static — XP curve, level
 resolution and badge keys with no I/O. It is reused by `UserStatsService`.

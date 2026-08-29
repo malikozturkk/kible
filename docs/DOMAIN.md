@@ -14,23 +14,46 @@ resolved on every request from the coordinates:
 resolveTimezone(lat, lon); // tz-lookup, falls back to 'Europe/Istanbul' on any error
 ```
 
-Prayer times come from the `adhan` library via `PrayerTimeFactory`
-(`src/worship/factories/prayer-time.factory.ts`):
+Prayer times come from the `adhan` library via `PrayerTimesService`
+(`src/worship/services/prayer-times.service.ts`), which is the **only** place in `src/` that
+constructs an `adhan.PrayerTimes`. `/worship`, `/worship/public/prayer-times` and every
+`/gamification` route call `PrayerTimesService.getDay()`, so all three return identical times for
+the same coordinates and date.
 
-| Parameter             | Value                                                                     |
-| --------------------- | ------------------------------------------------------------------------- |
-| Calculation method    | **`Turkey`** — the default, and nothing in `src/` ever passes another one |
-| High-latitude rule    | `MiddleOfTheNight`                                                        |
-| Madhab (`/worship`)   | the user's stored `madhab` (`SHAFI` / `HANAFI`)                           |
-| Madhab (gamification) | the user's stored `madhab` — same value                                   |
+The parameters themselves live in a profile table
+(`src/worship/constants/prayer-calculation.constants.ts`) — the service applies a profile, it never
+picks one:
 
-Gamification used to hardcode `Shafi` (commit `823c539`). That split shipped a real defect: for a
-Hanafi user in Gaziantep on 2026-08-01, `/worship` showed Asr at 17:37 while the markable window
-still ended at the Shafi 16:29, so Dhuhr became unmarkable 69 minutes before its real end. Both
-paths now read the stored madhab and must stay in sync.
+| Profile   | Method     | Asr shadow ratio | High-latitude rule |
+| --------- | ---------- | ---------------- | ------------------ |
+| `DIYANET` | **Turkey** | **1**            | `MiddleOfTheNight` |
+
+`PRAYER_CALCULATION_PROFILE_BY_MADHAB` maps `User.madhab`; **both `SHAFI` and `HANAFI` map to
+`DIYANET`**, and unauthenticated callers get the same profile. This is the one place a madhab
+touches the calculation.
+
+### Why the madhab no longer moves Asr
+
+`adhan`'s `params.madhab` is not an identity field — it is a two-way shadow-ratio switch, where
+`Shafi` = ratio 1 and `Hanafi` = ratio 2. The code used to assign `User.madhab` straight onto it,
+which silently turned "I am Hanafi" into "compute Asr at shadow ratio 2". For İstanbul on 2026-08-29
+that produced **17:50** where Diyanet publishes **16:51**.
+
+The mapping was wrong on its own terms. Ratio 2 (_asr-ı sânî_) is Abu Hanifa's personal position;
+ratio 1 (_asr-ı evvel_) is the position of the two companions (Abu Yusuf, Muhammad al-Shaybani) and
+is what Diyanet — itself Hanafi — publishes for all of Turkey. Since Shafi'i Asr is also ratio 1,
+the only prayer-time difference between the two madhabs collapses, and the two profiles are
+legitimately identical. A Hanafi user in Turkey expects the Diyanet timetable, and now gets it.
+
+Symptom before the fix: `/worship/public/prayer-times` (no user, defaulted to ratio 1) and
+`/worship` (read the user's madhab) returned different Asr times for the same city and day, and
+`/gamification/daily-prayers` kept Dhuhr markable until 17:50 — an hour after Asr had begun.
+
+Adding a genuinely different school (e.g. Ja'fari: Tehran angles, Maghrib ~13 min after sunset)
+means adding an enum value and a row to the profile table; no calculation code changes.
 
 Verified against `api.aladhan.com` (method 13 = Diyanet) for Gaziantep, İstanbul and Erzurum across
-three dates, both madhabs: 45 comparisons, none off by more than a minute.
+three dates: none off by more than a minute.
 
 If `latitude` or `longitude` is null, every prayer-dependent endpoint fails with
 `USER_LOCATION_NOT_SET`.
