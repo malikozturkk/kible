@@ -9,13 +9,11 @@ import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { StringValue } from 'ms';
-import * as bcrypt from 'bcrypt';
-import { ConsentType } from '@prisma/client';
+import { ConsentType, PasswordHashScheme, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
 import type { ConsentVersionsMap } from '../consent/consent.constants';
-import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { AuthResponseDto } from './dto/auth-response.dto';
 import { AVATAR_COLOR_KEYS, type AvatarColorKey } from './constants/avatar.constants';
@@ -23,7 +21,6 @@ import {
   MAX_LOCATION_CHANGES,
   MAX_MADHAB_CHANGES,
   USERNAME_CHANGE_COOLDOWN_DAYS,
-  BCRYPT_COST,
 } from './constants/profile.constants';
 import { AvatarColorsDto } from './dto/avatar-colors.dto';
 import { resolveCityCoordinates } from './constants/tr-cities.constants';
@@ -33,8 +30,18 @@ import { RegisterResponseDto } from './dto/register-response.dto';
 import { UpdateProfileResponseDto } from './dto/update-profile-response.dto';
 import { JwtPayload } from './strategies/jwt.strategy';
 import { OtpService } from '../otp/otp.service';
+import { CURRENT_HASH_SCHEME, hashPassword, verifyPassword } from './utils/password-hash.util';
+import { PaginationDto } from '../common/dto/pagination.dto';
+import { buildPageMeta, paginate, type Paginated } from '../common/utils/pagination.util';
 import { LoginAttemptService } from './services/login-attempt.service';
 import * as crypto from 'crypto';
+
+const FOLLOW_USER_SELECT = {
+  username: true,
+  avatarConfig: {
+    select: { colors: true, accessories: true, gender: true },
+  },
+} satisfies Prisma.UserSelect;
 
 @Injectable()
 export class AuthService {
@@ -82,8 +89,7 @@ export class AuthService {
       throw new ConflictException('USER_ALREADY_EXISTS');
     }
 
-    const securePassword = password + this.PEPPER;
-    const passwordHash = await bcrypt.hash(securePassword, 12);
+    const passwordHash = await hashPassword(password, this.PEPPER as string);
 
     await this.prisma.otpVerification.deleteMany({
       where: {
@@ -102,7 +108,33 @@ export class AuthService {
     });
 
     if (activeRegistration) {
-      throw new ConflictException('ACTIVE_REGISTRATION_EXISTS');
+      const isSameRegistration =
+        activeRegistration.email === email && activeRegistration.username === username;
+      const isOwner =
+        isSameRegistration &&
+        (await verifyPassword(
+          password,
+          activeRegistration.passwordHash,
+          CURRENT_HASH_SCHEME,
+          this.PEPPER as string,
+        ));
+
+      if (!isOwner) {
+        throw new ConflictException('ACTIVE_REGISTRATION_EXISTS');
+      }
+
+      const remainingMs = activeRegistration.expiresAt.getTime() - Date.now();
+      const resumedToken = this.jwtService.sign(
+        { email, username, purpose: 'register' },
+        { expiresIn: Math.max(Math.floor(remainingMs / 1000), 1) },
+      );
+
+      await this.prisma.otpVerification.update({
+        where: { id: activeRegistration.id },
+        data: { tokenHash: this.otpService.hashToken(resumedToken) },
+      });
+
+      return { tempToken: resumedToken };
     }
 
     const tempToken = this.jwtService.sign(
@@ -132,30 +164,6 @@ export class AuthService {
     };
   }
 
-  async resumeRegistration(email: string): Promise<RegisterResponseDto> {
-    const pending = await this.prisma.otpVerification.findFirst({
-      where: { email, expiresAt: { gt: new Date() } },
-      orderBy: { createdAt: 'desc' },
-    });
-
-    if (!pending) {
-      throw new BadRequestException('NO_PENDING_REGISTRATION');
-    }
-
-    const remainingMs = pending.expiresAt.getTime() - Date.now();
-    const tempToken = this.jwtService.sign(
-      { email: pending.email, username: pending.username, purpose: 'register' },
-      { expiresIn: Math.floor(remainingMs / 1000) },
-    );
-
-    await this.prisma.otpVerification.update({
-      where: { id: pending.id },
-      data: { tokenHash: this.otpService.hashToken(tempToken) },
-    });
-
-    return { tempToken };
-  }
-
   async login(loginDto: LoginDto): Promise<AuthResponseDto> {
     const { identifier, password } = loginDto;
 
@@ -178,8 +186,12 @@ export class AuthService {
       throw new UnauthorizedException('INVALID_CREDENTIALS');
     }
 
-    const securePassword = password + this.PEPPER;
-    const isValid = await bcrypt.compare(securePassword, user.credentials.passwordHash);
+    const isValid = await verifyPassword(
+      password,
+      user.credentials.passwordHash,
+      user.credentials.hashScheme,
+      this.PEPPER as string,
+    );
 
     if (this.loginAttemptService.isLocked(user.credentials)) {
       throw new UnauthorizedException('ACCOUNT_TEMPORARILY_LOCKED');
@@ -191,6 +203,7 @@ export class AuthService {
     }
 
     await this.loginAttemptService.registerSuccess(user.id);
+    await this.upgradeHashSchemeIfNeeded(user.id, user.credentials.hashScheme, password);
 
     const tokens = await this.generateTokens(user.id, user.username);
     return {
@@ -199,7 +212,7 @@ export class AuthService {
     };
   }
 
-  async refresh(refreshTokenDto: RefreshTokenDto): Promise<AuthResponseDto> {
+  async refresh(refreshTokenDto: { refreshToken: string }): Promise<AuthResponseDto> {
     const { refreshToken } = refreshTokenDto;
     const tokenHash = crypto.createHash('sha256').update(refreshToken).digest('hex');
     const storedToken = await this.prisma.refreshToken.findUnique({
@@ -211,15 +224,25 @@ export class AuthService {
       },
     });
 
-    if (!storedToken || storedToken.isRevoked || storedToken.expiresAt < new Date()) {
+    if (!storedToken || storedToken.expiresAt < new Date()) {
       throw new UnauthorizedException('INVALID_OR_EXPIRED_REFRESH_TOKEN');
     }
+
+    if (storedToken.isRevoked) {
+      await this.revokeTokenFamily(storedToken.userId, storedToken.familyId);
+      throw new UnauthorizedException('INVALID_OR_EXPIRED_REFRESH_TOKEN');
+    }
+
     await this.prisma.refreshToken.update({
       where: { id: storedToken.id },
       data: { isRevoked: true },
     });
 
-    const tokens = await this.generateTokens(storedToken.user.id, storedToken.user.username);
+    const tokens = await this.generateTokens(
+      storedToken.user.id,
+      storedToken.user.username,
+      storedToken.familyId,
+    );
     return {
       ...tokens,
       user: toAuthUser(storedToken.user),
@@ -282,7 +305,6 @@ export class AuthService {
   private getProfileSelect(isOwner: boolean) {
     const base = {
       username: true,
-      avatar: true,
       createdAt: true,
       country: true,
       city: true,
@@ -346,7 +368,6 @@ export class AuthService {
         count: mutualFollowers.length,
         preview: mutualFollowers.map((f) => ({
           username: f.follower.username,
-          avatar: f.follower.avatar,
           avatarCustomization: resolveAvatarCustomizationFromDb(f.follower.avatarConfig),
         })),
       },
@@ -365,7 +386,6 @@ export class AuthService {
         follower: {
           select: {
             username: true,
-            avatar: true,
             avatarConfig: {
               select: { colors: true, accessories: true, gender: true },
             },
@@ -406,7 +426,6 @@ export class AuthService {
     let passwordChanged = false;
     const {
       username,
-      avatar,
       gender,
       avatarColors,
       currentPassword,
@@ -490,8 +509,12 @@ export class AuthService {
         throw new UnauthorizedException('USER_NOT_FOUND');
       }
 
-      const securePassword = currentPassword + this.PEPPER;
-      const isPasswordValid = await bcrypt.compare(securePassword, user.credentials.passwordHash);
+      const isPasswordValid = await verifyPassword(
+        currentPassword,
+        user.credentials.passwordHash,
+        user.credentials.hashScheme,
+        this.PEPPER as string,
+      );
 
       if (!isPasswordValid) {
         throw new UnauthorizedException('INVALID_CURRENT_PASSWORD');
@@ -501,13 +524,14 @@ export class AuthService {
         throw new BadRequestException('NEW_PASSWORD_MUST_DIFFER');
       }
 
-      const hashedPassword = await bcrypt.hash(newPassword + this.PEPPER, BCRYPT_COST);
+      const hashedPassword = await hashPassword(newPassword, this.PEPPER as string);
 
       await this.prisma.$transaction(async (tx) => {
         await tx.userCredential.update({
           where: { userId },
           data: {
             passwordHash: hashedPassword,
+            hashScheme: CURRENT_HASH_SCHEME,
             passwordUpdatedAt: new Date(),
             failedLoginAttempts: 0,
             lockedUntil: null,
@@ -528,7 +552,6 @@ export class AuthService {
       where: { id: userId },
       data: {
         ...(usernameChanged && { username, usernameUpdatedAt: new Date() }),
-        ...(avatar !== undefined && { avatar }),
         ...(language !== undefined && { language }),
         ...(locationChanged &&
           resolvedCoordinates && {
@@ -544,7 +567,6 @@ export class AuthService {
         id: true,
         username: true,
         email: true,
-        avatar: true,
         country: true,
         city: true,
         madhab: true,
@@ -605,9 +627,37 @@ export class AuthService {
     return { username: identifier };
   }
 
+  private async revokeTokenFamily(userId: string, familyId: string): Promise<void> {
+    await this.prisma.$transaction([
+      this.prisma.refreshToken.updateMany({
+        where: { userId, familyId, isRevoked: false },
+        data: { isRevoked: true },
+      }),
+      this.prisma.userCredential.updateMany({
+        where: { userId },
+        data: { tokenVersion: { increment: 1 } },
+      }),
+    ]);
+  }
+
+  private async upgradeHashSchemeIfNeeded(
+    userId: string,
+    scheme: PasswordHashScheme,
+    plainPassword: string,
+  ): Promise<void> {
+    if (scheme === CURRENT_HASH_SCHEME) return;
+
+    const passwordHash = await hashPassword(plainPassword, this.PEPPER as string);
+    await this.prisma.userCredential.update({
+      where: { userId },
+      data: { passwordHash, hashScheme: CURRENT_HASH_SCHEME },
+    });
+  }
+
   private async generateTokens(
     userId: string,
     username: string,
+    familyId?: string,
   ): Promise<{ accessToken: string; refreshToken: string }> {
     const credentials = await this.prisma.userCredential.findUnique({
       where: { userId },
@@ -635,6 +685,7 @@ export class AuthService {
         userId,
         tokenHash,
         expiresAt,
+        ...(familyId ? { familyId } : {}),
       },
     });
 
@@ -644,7 +695,7 @@ export class AuthService {
     };
   }
 
-  async getFollowers(username: string) {
+  private async resolveUserIdByUsername(username: string): Promise<string> {
     const target = await this.prisma.user.findUnique({
       where: { username },
       select: { id: true },
@@ -654,60 +705,55 @@ export class AuthService {
       throw new NotFoundException('USER_NOT_FOUND');
     }
 
-    const follows = await this.prisma.follow.findMany({
-      where: { followingId: target.id },
-      select: {
-        follower: {
-          select: {
-            username: true,
-            avatar: true,
-            avatarConfig: {
-              select: { colors: true, accessories: true, gender: true },
-            },
-          },
-        },
-      },
-      orderBy: { createdAt: 'desc' },
-    });
-
-    return follows.map((f) => ({
-      username: f.follower.username,
-      avatar: f.follower.avatar,
-      avatarCustomization: resolveAvatarCustomizationFromDb(f.follower.avatarConfig),
-    }));
+    return target.id;
   }
 
-  async getFollowing(username: string) {
-    const target = await this.prisma.user.findUnique({
-      where: { username },
-      select: { id: true },
-    });
+  async getFollowers(username: string, pagination?: PaginationDto): Promise<Paginated<unknown>> {
+    const targetId = await this.resolveUserIdByUsername(username);
+    const { skip, take, page, pageSize } = paginate(pagination);
 
-    if (!target) {
-      throw new NotFoundException('USER_NOT_FOUND');
-    }
+    const [follows, total] = await Promise.all([
+      this.prisma.follow.findMany({
+        where: { followingId: targetId },
+        select: { follower: { select: FOLLOW_USER_SELECT } },
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take,
+      }),
+      this.prisma.follow.count({ where: { followingId: targetId } }),
+    ]);
 
-    const follows = await this.prisma.follow.findMany({
-      where: { followerId: target.id },
-      select: {
-        following: {
-          select: {
-            username: true,
-            avatar: true,
-            avatarConfig: {
-              select: { colors: true, accessories: true, gender: true },
-            },
-          },
-        },
-      },
-      orderBy: { createdAt: 'desc' },
-    });
+    return {
+      items: follows.map((f) => ({
+        username: f.follower.username,
+        avatarCustomization: resolveAvatarCustomizationFromDb(f.follower.avatarConfig),
+      })),
+      meta: buildPageMeta(page, pageSize, total),
+    };
+  }
 
-    return follows.map((f) => ({
-      username: f.following.username,
-      avatar: f.following.avatar,
-      avatarCustomization: resolveAvatarCustomizationFromDb(f.following.avatarConfig),
-    }));
+  async getFollowing(username: string, pagination?: PaginationDto): Promise<Paginated<unknown>> {
+    const targetId = await this.resolveUserIdByUsername(username);
+    const { skip, take, page, pageSize } = paginate(pagination);
+
+    const [follows, total] = await Promise.all([
+      this.prisma.follow.findMany({
+        where: { followerId: targetId },
+        select: { following: { select: FOLLOW_USER_SELECT } },
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take,
+      }),
+      this.prisma.follow.count({ where: { followerId: targetId } }),
+    ]);
+
+    return {
+      items: follows.map((f) => ({
+        username: f.following.username,
+        avatarCustomization: resolveAvatarCustomizationFromDb(f.following.avatarConfig),
+      })),
+      meta: buildPageMeta(page, pageSize, total),
+    };
   }
 
   async toggleFollow(currentUserId: string, targetUsername: string) {

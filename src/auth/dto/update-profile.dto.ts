@@ -39,7 +39,6 @@ export class UpdateProfileDto {
   })
   username?: string;
 
-  
   @IsOptional()
   @IsIn(GENDER_VALUES, { message: 'INVALID_GENDER' })
   gender?: GenderValue;

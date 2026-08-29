@@ -2,7 +2,7 @@ import { HttpStatus, Injectable } from '@nestjs/common';
 import { PrayerType } from '@prisma/client';
 import { DateTime } from 'luxon';
 import { PrismaService } from '../../prisma/prisma.service';
-import { PrayerTimeFactory } from '../../worship/factories/prayer-time.factory';
+import { PrayerTimesService } from '../../worship/services/prayer-times.service';
 import { BusinessException } from '../../common/exceptions/business.exception';
 import { LocalDate } from '../../common/utils/local-date';
 import { PrayerSlot, PrayerScheduleParams, UserPrayerConfig } from '../types/gamification.types';
@@ -21,7 +21,7 @@ import { PRAYER_FIRST_OF_DAY_BONUS_XP } from '../constants/prayer.constants';
 export class PrayerScheduleService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly prayerTimeFactory: PrayerTimeFactory,
+    private readonly prayerTimesService: PrayerTimesService,
     private readonly quizExpiryService: PrayerQuizExpiryService,
   ) {}
 
@@ -61,25 +61,19 @@ export class PrayerScheduleService {
       throw new BusinessException('INVALID_DATE_OR_TIMEZONE', HttpStatus.BAD_REQUEST);
     }
 
-    const built = this.prayerTimeFactory.buildPrayerTimesWithMeta(
+    const day = this.prayerTimesService.getDay({
       latitude,
       longitude,
-      zonedDate.toJSDate(),
-      { madhab },
-    );
-
-    const tomorrowBuilt = this.prayerTimeFactory.buildPrayerTimesWithMeta(
-      latitude,
-      longitude,
-      zonedDate.plus({ days: 1 }).toJSDate(),
-      { madhab },
-    );
+      date: zonedDate,
+      timezone,
+      madhab,
+    });
 
     const hijri = toHijri(zonedDate);
 
     const slots = buildPrayerSlots({
-      todayPrayerTimes: built.prayerTimes,
-      tomorrowPrayerTimes: tomorrowBuilt.prayerTimes,
+      todayPrayerTimes: day.prayerTimes,
+      tomorrowPrayerTimes: day.tomorrowPrayerTimes,
       zonedDate,
       timezone,
       hijri,

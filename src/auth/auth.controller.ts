@@ -10,9 +10,10 @@ import {
   HttpCode,
   HttpStatus,
   Param,
+  Query,
+  Res,
 } from '@nestjs/common';
-import { Request as ExpressRequest } from 'express';
-import { Throttle, ThrottlerGuard } from '@nestjs/throttler';
+import { Throttle } from '@nestjs/throttler';
 import { AuthService } from './auth.service';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
@@ -27,7 +28,15 @@ import { ValidateResetTokenDto } from './dto/validate-reset-token.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import type { AuthenticatedRequest } from 'src/auth/strategies/jwt.strategy';
 import { UpdateProfileResponseDto } from './dto/update-profile-response.dto';
-import { ResumeRegistrationDto } from './dto/resume-registration.dto';
+import { PaginationDto } from '../common/dto/pagination.dto';
+import type { Request as ExpressRequest, Response as ExpressResponse } from 'express';
+import {
+  clearRefreshTokenCookie,
+  issueAuthResponse,
+  readRefreshTokenCookie,
+  setRefreshTokenCookie,
+} from '../common/utils/auth-cookie.util';
+import { BusinessException } from '../common/exceptions/business.exception';
 import {
   THROTTLE_EMAIL_SEND,
   THROTTLE_LOGIN,
@@ -36,7 +45,6 @@ import {
   THROTTLE_RESET,
 } from '../common/throttler/throttle.constants';
 
-@UseGuards(ThrottlerGuard)
 @Controller('auth')
 export class AuthController {
   constructor(
@@ -53,32 +61,55 @@ export class AuthController {
   @Post('login')
   @Throttle({ default: THROTTLE_LOGIN })
   @HttpCode(HttpStatus.OK)
-  async login(@Body() loginDto: LoginDto): Promise<AuthResponseDto> {
-    return this.authService.login(loginDto);
+  async login(
+    @Body() loginDto: LoginDto,
+    @Res({ passthrough: true }) res: ExpressResponse,
+  ): Promise<Omit<AuthResponseDto, 'refreshToken'>> {
+    return issueAuthResponse(res, await this.authService.login(loginDto));
   }
 
   @Post('refresh')
   @Throttle({ default: THROTTLE_REFRESH })
   @HttpCode(HttpStatus.OK)
-  async refresh(@Body() refreshTokenDto: RefreshTokenDto): Promise<AuthResponseDto> {
-    return this.authService.refresh(refreshTokenDto);
+  async refresh(
+    @Request() req: ExpressRequest,
+    @Body() refreshTokenDto: RefreshTokenDto,
+    @Res({ passthrough: true }) res: ExpressResponse,
+  ): Promise<Omit<AuthResponseDto, 'refreshToken'>> {
+    const refreshToken = this.resolveRefreshToken(req, refreshTokenDto);
+    return issueAuthResponse(res, await this.authService.refresh({ refreshToken }));
   }
 
   @Post('logout')
   @UseGuards(JwtAuthGuard)
   @HttpCode(HttpStatus.OK)
   async logout(
-    @Request() req: AuthenticatedRequest,
+    @Request() req: AuthenticatedRequest & ExpressRequest,
     @Body() refreshTokenDto: RefreshTokenDto,
+    @Res({ passthrough: true }) res: ExpressResponse,
   ): Promise<void> {
-    await this.authService.logout(req.user.id, refreshTokenDto.refreshToken);
+    const refreshToken = this.resolveRefreshToken(req, refreshTokenDto);
+    clearRefreshTokenCookie(res);
+    await this.authService.logout(req.user.id, refreshToken);
   }
 
   @Delete('me')
   @UseGuards(JwtAuthGuard)
   @HttpCode(HttpStatus.OK)
-  async deleteAccount(@Request() req: AuthenticatedRequest): Promise<void> {
+  async deleteAccount(
+    @Request() req: AuthenticatedRequest,
+    @Res({ passthrough: true }) res: ExpressResponse,
+  ): Promise<void> {
+    clearRefreshTokenCookie(res);
     await this.authService.deleteAccount(req.user.id);
+  }
+
+  private resolveRefreshToken(req: ExpressRequest, dto: RefreshTokenDto): string {
+    const token = readRefreshTokenCookie(req) ?? dto.refreshToken;
+    if (!token) {
+      throw new BusinessException('INVALID_OR_EXPIRED_REFRESH_TOKEN', HttpStatus.UNAUTHORIZED);
+    }
+    return token;
   }
 
   @Get(':username')
@@ -92,17 +123,17 @@ export class AuthController {
   async updateProfile(
     @Request() req: AuthenticatedRequest,
     @Body() updateProfileDto: UpdateProfileDto,
+    @Res({ passthrough: true }) res: ExpressResponse,
   ): Promise<UpdateProfileResponseDto> {
-    return this.authService.updateProfile(req.user.id, updateProfileDto);
-  }
+    const result = await this.authService.updateProfile(req.user.id, updateProfileDto);
 
-  @Post('resume-registration')
-  @Throttle({ default: THROTTLE_RESET })
-  @HttpCode(HttpStatus.OK)
-  async resumeRegistration(
-    @Body() resumeRegistrationDto: ResumeRegistrationDto,
-  ): Promise<RegisterResponseDto> {
-    return this.authService.resumeRegistration(resumeRegistrationDto.email);
+    if (result.tokens?.refreshToken) {
+      const { refreshToken, ...accessOnly } = result.tokens;
+      setRefreshTokenCookie(res, refreshToken);
+      return { ...result, tokens: accessOnly };
+    }
+
+    return result;
   }
 
   @Post('forgot-password')
@@ -135,13 +166,13 @@ export class AuthController {
 
   @Get(':username/followers')
   @UseGuards(JwtAuthGuard)
-  async getFollowers(@Param('username') username: string) {
-    return this.authService.getFollowers(username);
+  async getFollowers(@Param('username') username: string, @Query() pagination: PaginationDto) {
+    return this.authService.getFollowers(username, pagination);
   }
 
   @Get(':username/following')
   @UseGuards(JwtAuthGuard)
-  async getFollowing(@Param('username') username: string) {
-    return this.authService.getFollowing(username);
+  async getFollowing(@Param('username') username: string, @Query() pagination: PaginationDto) {
+    return this.authService.getFollowing(username, pagination);
   }
 }

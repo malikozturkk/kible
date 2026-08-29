@@ -90,44 +90,43 @@ export class UsersService {
     const page = ranked.slice(cursor, cursor + pageSize + 1);
     const hasNextPage = page.length > pageSize;
     const resultSlice = hasNextPage ? page.slice(0, pageSize) : page;
-
-    const users: SearchUserResult[] = await Promise.all(
-      resultSlice.map(async (user) => {
-        const [mutualFollowsPreview, mutualCount] = await Promise.all([
-          this.prisma.follow.findMany({
-            where: {
-              followingId: user.id,
-              follower: { followers: { some: { followerId: requesterId } } },
-            },
-            select: {
-              follower: {
-                select: { username: true, avatarConfig: AVATAR_CONFIG_SELECT },
-              },
-            },
-            take: 3,
-          }),
-          this.prisma.follow.count({
-            where: {
-              followingId: user.id,
-              follower: { followers: { some: { followerId: requesterId } } },
-            },
-          }),
-        ]);
-
-        return {
-          username: user.username,
-          avatarCustomization: resolveAvatarCustomizationFromDb(user.avatarConfig),
-          isFollowing: directFollowIdSet.has(user.id),
-          mutualFollowers: {
-            count: mutualCount,
-            preview: mutualFollowsPreview.map((f) => ({
-              username: f.follower.username,
-              avatarCustomization: resolveAvatarCustomizationFromDb(f.follower.avatarConfig),
-            })),
+    const pageIds = resultSlice.map((user) => user.id);
+    const mutualRows = pageIds.length
+      ? await this.prisma.follow.findMany({
+          where: {
+            followingId: { in: pageIds },
+            follower: { followers: { some: { followerId: requesterId } } },
           },
-        };
-      }),
-    );
+          select: {
+            followingId: true,
+            follower: { select: { username: true, avatarConfig: AVATAR_CONFIG_SELECT } },
+          },
+        })
+      : [];
+
+    const mutualsByUserId = new Map<string, typeof mutualRows>();
+    for (const row of mutualRows) {
+      const bucket = mutualsByUserId.get(row.followingId);
+      if (bucket) bucket.push(row);
+      else mutualsByUserId.set(row.followingId, [row]);
+    }
+
+    const users: SearchUserResult[] = resultSlice.map((user) => {
+      const mutuals = mutualsByUserId.get(user.id) ?? [];
+
+      return {
+        username: user.username,
+        avatarCustomization: resolveAvatarCustomizationFromDb(user.avatarConfig),
+        isFollowing: directFollowIdSet.has(user.id),
+        mutualFollowers: {
+          count: mutuals.length,
+          preview: mutuals.slice(0, 3).map((f) => ({
+            username: f.follower.username,
+            avatarCustomization: resolveAvatarCustomizationFromDb(f.follower.avatarConfig),
+          })),
+        },
+      };
+    });
 
     return {
       users,
