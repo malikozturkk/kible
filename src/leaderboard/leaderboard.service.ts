@@ -15,11 +15,13 @@ import {
   LEADERBOARD_SELF_RANK_SCAN_LIMIT,
 } from './constants/leaderboard.constants';
 
+type AudienceFilter =
+  { kind: 'all' } | { kind: 'city'; city: string } | { kind: 'ids'; ids: string[] };
+
 interface ScoredUser {
   id: string;
   username: string;
   city: string | null;
-  avatar: string | null;
   avatarConfig: Prisma.UserAvatarConfigGetPayload<typeof AVATAR_CONFIG_SELECT> | null;
   score: number;
 }
@@ -55,7 +57,6 @@ export class LeaderboardService {
       rank: index + 1,
       username: user.username,
       city: user.city,
-      avatar: user.avatar,
       avatarCustomization: resolveAvatarCustomizationFromDb(user.avatarConfig),
       score: user.score,
       isCurrentUser: user.id === viewerId,
@@ -81,29 +82,31 @@ export class LeaderboardService {
   private async resolveAudience(
     viewer: { id: string; city: string | null },
     scope: LeaderboardScope,
-  ): Promise<string[] | undefined> {
-    if (scope === LeaderboardScope.GLOBAL) return undefined;
+  ): Promise<AudienceFilter> {
+    if (scope === LeaderboardScope.GLOBAL) return { kind: 'all' };
 
     if (scope === LeaderboardScope.CITY) {
-      if (!viewer.city) return [viewer.id];
-      const peers = await this.prisma.user.findMany({
-        where: { city: viewer.city },
-        select: { id: true },
-      });
-      return peers.map((p) => p.id);
+      if (!viewer.city) return { kind: 'ids', ids: [viewer.id] };
+      return { kind: 'city', city: viewer.city };
     }
 
     const following = await this.prisma.follow.findMany({
       where: { followerId: viewer.id },
       select: { followingId: true },
     });
-    return [viewer.id, ...following.map((f) => f.followingId)];
+    return { kind: 'ids', ids: [viewer.id, ...following.map((f) => f.followingId)] };
+  }
+
+  private audienceWhere(audience: AudienceFilter) {
+    if (audience.kind === 'all') return {};
+    if (audience.kind === 'city') return { user: { city: audience.city } };
+    return { userId: { in: audience.ids } };
   }
 
   private async scoreUsers(
     metric: LeaderboardMetric,
     period: LeaderboardPeriod,
-    audience: string[] | undefined,
+    audience: AudienceFilter,
   ): Promise<ScoredUser[]> {
     switch (metric) {
       case LeaderboardMetric.XP:
@@ -121,16 +124,15 @@ export class LeaderboardService {
       id: true,
       username: true,
       city: true,
-      avatar: true,
       avatarConfig: AVATAR_CONFIG_SELECT,
     } as const;
   }
 
-  private async scoreByXp(audience: string[] | undefined): Promise<ScoredUser[]> {
+  private async scoreByXp(audience: AudienceFilter): Promise<ScoredUser[]> {
     const rows = await this.prisma.userXp.findMany({
       where: {
         totalXp: { gte: LEADERBOARD_MIN_SCORE },
-        ...(audience && { userId: { in: audience } }),
+        ...this.audienceWhere(audience),
       },
       orderBy: { totalXp: 'desc' },
       take: LEADERBOARD_SELF_RANK_SCAN_LIMIT,
@@ -142,7 +144,7 @@ export class LeaderboardService {
 
   private async scoreByPrayers(
     period: LeaderboardPeriod,
-    audience: string[] | undefined,
+    audience: AudienceFilter,
   ): Promise<ScoredUser[]> {
     const today = LocalDate.todayIn(DEFAULT_TIMEZONE);
     const windowDays =
@@ -151,7 +153,7 @@ export class LeaderboardService {
     const grouped = await this.prisma.prayerCompletion.groupBy({
       by: ['userId'],
       where: {
-        ...(audience && { userId: { in: audience } }),
+        ...this.audienceWhere(audience),
         ...(windowDays !== null && {
           prayerDate: { gte: today.plusDays(-(windowDays - 1)).toUtcMidnight() },
         }),
@@ -175,11 +177,11 @@ export class LeaderboardService {
     });
   }
 
-  private async scoreByStreak(audience: string[] | undefined): Promise<ScoredUser[]> {
+  private async scoreByStreak(audience: AudienceFilter): Promise<ScoredUser[]> {
     const rows = await this.prisma.userStreak.findMany({
       where: {
         currentStreak: { gte: LEADERBOARD_MIN_SCORE },
-        ...(audience && { userId: { in: audience } }),
+        ...this.audienceWhere(audience),
       },
       orderBy: { currentStreak: 'desc' },
       take: LEADERBOARD_SELF_RANK_SCAN_LIMIT,

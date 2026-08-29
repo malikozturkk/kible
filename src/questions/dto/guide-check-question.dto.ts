@@ -11,4 +11,5 @@ export class GuideCheckQuestionBodyDto {
 export class GuideCheckQuestionResponseDto {
   isCorrect: boolean;
   correctOptionId: string;
+  explanation: string | null;
 }

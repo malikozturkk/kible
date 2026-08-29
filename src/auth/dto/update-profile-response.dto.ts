@@ -7,7 +7,8 @@ export class RotatedTokensDto {
   accessToken: string;
 
   @IsString()
-  refreshToken: string;
+  @IsOptional()
+  refreshToken?: string;
 }
 
 export class UpdateProfileResponseDto extends AuthResponseUserDto {

@@ -6,7 +6,6 @@ export const USER_RESPONSE_SELECT = {
   id: true,
   username: true,
   email: true,
-  avatar: true,
   country: true,
   city: true,
   madhab: true,
@@ -28,7 +27,6 @@ type AuthUserRow = {
   id: string;
   username: string;
   email: string | null;
-  avatar: string | null;
   country: string | null;
   city: string | null;
   madhab: Madhab;
@@ -43,7 +41,6 @@ export function toAuthUser(row: AuthUserRow): AuthResponseUserDto {
     id: row.id,
     username: row.username,
     email: row.email,
-    avatar: row.avatar,
     country: row.country,
     city: row.city,
     madhab: row.madhab,

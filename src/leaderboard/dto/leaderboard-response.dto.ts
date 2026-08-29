@@ -9,7 +9,6 @@ export interface LeaderboardEntryDto {
   rank: number;
   username: string;
   city: string | null;
-  avatar: string | null;
   avatarCustomization: AvatarCustomizationResponseDto;
   score: number;
   isCurrentUser: boolean;

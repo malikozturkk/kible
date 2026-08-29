@@ -12,6 +12,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { EmailService } from '../email/email.service';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import { ValidateResetTokenDto } from './dto/validate-reset-token.dto';
+import { CURRENT_HASH_SCHEME, hashPassword } from './utils/password-hash.util';
 
 @Injectable()
 export class PasswordResetService {
@@ -144,8 +145,7 @@ export class PasswordResetService {
       throw new BadRequestException('USER_NOT_FOUND');
     }
 
-    const secureNewPassword = newPassword + this.PEPPER;
-    const newHash = await bcrypt.hash(secureNewPassword, 12);
+    const newHash = await hashPassword(newPassword, this.PEPPER as string);
 
     try {
       await this.prisma.$transaction([
@@ -153,6 +153,7 @@ export class PasswordResetService {
           where: { userId: user.id },
           data: {
             passwordHash: newHash,
+            hashScheme: CURRENT_HASH_SCHEME,
             passwordUpdatedAt: new Date(),
             tokenVersion: { increment: 1 },
             failedLoginAttempts: 0,

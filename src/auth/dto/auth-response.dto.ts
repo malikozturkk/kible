@@ -33,10 +33,6 @@ export class AuthResponseUserDto {
 
   @IsString()
   @IsOptional()
-  avatar: string | null;
-
-  @IsString()
-  @IsOptional()
   country: string | null;
 
   @IsString()

@@ -9,6 +9,7 @@ import { AuthResponseDto } from '../auth/dto/auth-response.dto';
 import { EmailService } from '../email/email.service';
 import { toAuthUser, USER_RESPONSE_SELECT } from '../auth/utils/user-response.util';
 import { maskEmail } from '../common/utils/email-mask.util';
+import { CURRENT_HASH_SCHEME } from '../auth/utils/password-hash.util';
 
 export interface RegisterData {
   email: string;
@@ -205,6 +206,7 @@ export class OtpService {
             credentials: {
               create: {
                 passwordHash: record.passwordHash,
+                hashScheme: CURRENT_HASH_SCHEME,
               },
             },
             xp: {

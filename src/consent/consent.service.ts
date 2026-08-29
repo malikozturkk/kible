@@ -95,8 +95,7 @@ export class ConsentService implements OnModuleInit {
         },
       });
     } catch (err) {
-      if (err && err.code === 'P2002') {
-      } else {
+      if (!(err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002')) {
         throw err;
       }
     }

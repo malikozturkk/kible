@@ -111,3 +111,6 @@ export const resolveCityCoordinates = (city: string): { latitude: number; longit
   }
   return { latitude: match.latitude, longitude: match.longitude };
 };
+
+export const findTrCity = (city: string): TrCity | undefined =>
+  CITY_INDEX.get(normalizeTr(city ?? ''));
