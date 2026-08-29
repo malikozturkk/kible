@@ -45,7 +45,7 @@ AppModule
 │  └─ WorshipModule        (reuses PrayerTimeFactory)
 ├─ GuidesModule
 │  └─ QuestionsModule      → QuestionsController is registered through this import
-├─ WorshipModule
+├─ WorshipModule           also serves the app's only unauthenticated worship route
 ├─ UsersModule
 ├─ LeaderboardModule
 ├─ TelemetryModule         POST /telemetry/client-errors → pino error log
@@ -91,8 +91,9 @@ was removed.
 Routes behind `OtpJwtGuard` (`/otp/verify`, `/otp/resend`) are deliberately outside the gate: they
 run before the account exists. `ConsentGuard` still honors `@ConsentBypass()`, `@Public()`, and the
 static `CONSENT_BYPASS_ROUTES` regex list covering `/consent/status`, `/consent/accept`,
-`/auth/logout`, `/auth/refresh`, `DELETE /auth/me` (account deletion must not be blockable by a
-pending re-accept) and `/legal/*`.
+`GET /users/me/export` (KVKK m.11 must not be blocked by a pending re-accept), `/auth/logout`,
+`/auth/refresh`, `DELETE /auth/me` (account deletion must not be blockable by a pending re-accept)
+and `/legal/*`.
 
 ### Trust proxy and client IP
 
@@ -142,8 +143,9 @@ Because prose messages are discarded, always throw with a key.
 The filter also **logs** what it swallows: any exception that is not an `HttpException`, and any
 `HttpException` with status ≥ 500, is logged at `error` level with its stack trace plus the request
 method, URL and request id. `BusinessException` and 4xx responses are deliberately not logged here —
-they are expected flow and already appear in the pino access log as `warn` lines. Behavior is pinned
-by `src/common/filters/http-exception.filter.spec.ts`.
+they are expected flow and already appear in the pino access log as `warn` lines. **This behavior is
+not covered by any test** — `src/common/filters/http-exception.filter.spec.ts` is referenced in
+older notes but does not exist in the tree; `src/app.controller.spec.ts` is the only spec.
 
 ### Logging — `src/common/logging/`
 
@@ -248,7 +250,10 @@ rather than one fat service:
   `GamificationActionService` (a dispatch switch over `GamificationActionType`).
   `GamificationService` is a thin facade the controller talks to.
 - `worship/services/` — `PrayerCountdownService`, `FastingProgressService`, `DayProgressService`,
-  plus `WorshipResponseMapper` for the response shape.
+  plus `WorshipResponseMapper` for the response shape. `PublicPrayerTimesService` serves the
+  unauthenticated `GET /worship/public/prayer-times` route: it reuses `PrayerTimeFactory`,
+  `resolveTimezone()` and `toHijriLabel()` but touches neither Prisma nor the request user, so its
+  result depends only on (province, date, madhab).
 
 **Domain object.** `LevelCalculator` (`gamification/domain/`) is pure and static — XP curve, level
 resolution and badge keys with no I/O. It is reused by `UserStatsService`.
@@ -257,25 +262,35 @@ resolution and badge keys with no I/O. It is reused by `UserStatsService`.
 
 ## Rate limiting
 
-`AppThrottlerModule` (`src/common/throttler/`) registers `ThrottlerModule.forRoot()` once and
-re-exports it globally, so `@UseGuards(ThrottlerGuard)` works in any feature module. It previously
-lived inside `ConsentModule`, which is why `/consent/accept` was the only throttled route in the
-app.
+`AppThrottlerModule` (`src/common/throttler/`) registers `ThrottlerModule.forRoot()` once **and
+registers `ThrottlerGuard` as an `APP_GUARD`**, so every route in the application is rate limited
+without opting in.
 
-One `default` throttler is configured; each risky route narrows it with `@Throttle({ default: … })`
-using a named constant from `throttle.constants.ts`. Exceeding a limit returns **429**, which the
-frontend maps to "Çok fazla deneme yaptın. Lütfen biraz bekle."
+That registration is the whole point. The module was already `@Global`, but the guard was not: it
+had to be attached per controller with `@UseGuards(ThrottlerGuard)`, and only four controllers ever
+did (auth, otp, consent, telemetry). `guides`, `questions`, `users`, `gamification`, `leaderboard`,
+`worship` and the app controller had **no limit at all** — including the two most expensive queries
+in the app (`/leaderboard` with `scope=CITY`, `/users/search`). The per-controller `@UseGuards`
+lines are now redundant and have been removed; route-specific `@Throttle(...)` overrides keep
+working exactly as before.
 
-| Route                                                                        | Limit       |
-| ---------------------------------------------------------------------------- | ----------- |
-| `POST /auth/login`                                                           | 5 / minute  |
-| `POST /auth/register`                                                        | 5 / hour    |
-| `POST /auth/forgot-password`, `POST /otp/resend`                             | 3 / hour    |
-| `POST /otp/verify`                                                           | 5 / minute  |
-| `POST /auth/reset-password`, `/validate-reset-token`, `/resume-registration` | 5 / minute  |
-| `POST /auth/refresh`                                                         | 20 / minute |
-| `POST /consent/accept`                                                       | 10 / minute |
-| `POST /telemetry/client-errors`                                              | 10 / minute |
+One `default` throttler is configured (10 req/min); each risky route narrows it with
+`@Throttle({ default: … })` using a named constant from `throttle.constants.ts`. Exceeding a limit
+returns **429**, which the frontend maps to "Çok fazla deneme yaptın. Lütfen biraz bekle."
+
+| Route                                                | Limit        |
+| ---------------------------------------------------- | ------------ |
+| `POST /auth/login`                                   | 5 / minute   |
+| `POST /auth/register`                                | 5 / hour     |
+| `POST /auth/forgot-password`, `POST /otp/resend`     | 3 / hour     |
+| `POST /otp/verify`                                   | 5 / minute   |
+| `POST /auth/reset-password`, `/validate-reset-token` | 5 / minute   |
+| `POST /auth/refresh`                                 | 20 / minute  |
+| `POST /consent/accept`                               | 10 / minute  |
+| `GET /users/me/export`                               | 3 / hour     |
+| `POST /telemetry/client-errors`                      | 10 / minute  |
+| `GET /worship/public/prayer-times`                   | 120 / minute |
+| everything else (the `default` bucket)               | 10 / minute  |
 
 The IP throttle is paired with a per-account lockout in `LoginAttemptService` — see
 [`DOMAIN.md` §8](DOMAIN.md#brute-force-protection). Storage is in-memory, so limits reset on restart

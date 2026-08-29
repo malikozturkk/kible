@@ -8,17 +8,21 @@ All primary keys are `String @id @default(uuid())`.
 
 ## Enums
 
-| Enum                       | Values                                                                                 |
-| -------------------------- | -------------------------------------------------------------------------------------- |
-| `Gender`                   | `MALE`, `FEMALE`                                                                       |
-| `Madhab`                   | `SHAFI`, `HANAFI`                                                                      |
-| `ConsentType`              | `TERMS_OF_SERVICE`, `PRIVACY_POLICY`, `SPECIAL_CATEGORY_DATA`                          |
-| `PrayerType`               | `FAJR`, `DHUHR`, `ASR`, `MAGHRIB`, `ISHA`, `JUMUAH`, `TARAWIH`, `EID_FITR`, `EID_ADHA` |
-| `PrayerCategory`           | `DAILY`, `WEEKLY`, `RAMADAN`, `EID`                                                    |
-| `PrayerCompletionStatus`   | `ON_TIME`, `LATE`                                                                      |
-| `PrayerQuizStatus`         | `PENDING`, `PASSED`, `FAILED`, `EXPIRED`                                               |
-| `PrayerQuizQuestionStatus` | `PENDING`, `SHOWN`, `CORRECT`, `INCORRECT`, `EXPIRED`, `LOCKED`                        |
-| `StreakFreezeReason`       | `USER_INITIATED`                                                                       |
+| Enum                         | Values                                                                                    |
+| ---------------------------- | ----------------------------------------------------------------------------------------- |
+| `Gender`                     | `MALE`, `FEMALE`                                                                          |
+| `Madhab`                     | `SHAFI`, `HANAFI`                                                                         |
+| `ConsentType`                | `TERMS_OF_SERVICE`, `PRIVACY_POLICY`, `SPECIAL_CATEGORY_DATA`                             |
+| `PrayerType`                 | `FAJR`, `DHUHR`, `ASR`, `MAGHRIB`, `ISHA`, `JUMUAH`, `TARAWIH`, `EID_FITR`, `EID_ADHA`    |
+| `PrayerCategory`             | `DAILY`, `WEEKLY`, `RAMADAN`, `EID`                                                       |
+| `PrayerCompletionStatus`     | `ON_TIME`, `LATE`                                                                         |
+| `PrayerQuizStatus`           | `PENDING`, `PASSED`, `FAILED`, `EXPIRED`                                                  |
+| `PrayerQuizQuestionStatus`   | `PENDING`, `SHOWN`, `CORRECT`, `INCORRECT`, `EXPIRED`, `LOCKED`                           |
+| `StreakFreezeReason`         | `USER_INITIATED`                                                                          |
+| `PasswordHashScheme`         | `LEGACY_CONCAT`, `HMAC_BCRYPT`                                                            |
+| `FastingStatus`              | `FASTED`, `EXCUSED`, `MISSED`                                                             |
+| `NotificationTopic`          | `PRAYER_TIME`, `MARK_WINDOW_CLOSING`, `STREAK_AT_RISK`, `RAMADAN_SUHOOR`, `RAMADAN_IFTAR` |
+| `NotificationDeliveryStatus` | `SENT`, `FAILED`, `SUBSCRIPTION_GONE`                                                     |
 
 `PrayerCategory` exists only in the DB enum — it is not stored on any column; the category is
 attached at runtime from `PRAYER_TYPE_METADATA`.
@@ -57,14 +61,19 @@ deletes the user's `password_resets` rows, any `otp_verifications` rows with the
 
 ### `User` → `users`
 
-`email` and `username` are both `@unique`. Profile columns: `avatar`, `country`, `city`, `latitude`,
+`email` and `username` are both `@unique`. Profile columns: `country`, `city`, `latitude`,
 `longitude`, `madhab` (default `SHAFI`), `language` (default `"tr"`).
+
+There is **no `avatar` column.** It held a legacy avatar URL and was dropped by
+`20260823193603_drop_user_avatar` — nothing wrote it (`UpdateProfileDto` had already stopped
+accepting the field.), nothing rendered it, and all 44 rows were `NULL`. The avatar is
+`UserAvatarConfig` (colors / accessories / gender); do not re-add a URL column to `User`.
 
 `latitude` / `longitude` are **never supplied by the client** — the request carries only `city`, and
 the server derives the coordinates from the chosen province via `resolveCityCoordinates()`
 (`src/auth/constants/tr-cities.constants.ts`) at register and profile-update time. The columns are
-kept so every downstream reader (prayer times, timezone, leaderboard) stays unchanged; they just hold
-the province-center coordinate rather than a device-reported one.
+kept so every downstream reader (prayer times, timezone, leaderboard) stays unchanged; they just
+hold the province-center coordinate rather than a device-reported one.
 
 `locationChangeCount` and `madhabChangeCount` are **one-time quotas** (`MAX_LOCATION_CHANGES` /
 `MAX_MADHAB_CHANGES`, both 1). Location decides the timezone every prayer window is derived from, so
@@ -130,7 +139,9 @@ is why `DELETE /auth/me` deletes the user's rows here explicitly inside its tran
 ### `UserConsent` → `user_consents`
 
 Append-only acceptance log, unique on `(userId, type, version)`. "Currently accepted" is the newest
-`acceptedAt` per type (`distinct: ['type']` with a descending sort), cached in memory for 30 s.
+`acceptedAt` per type (`distinct: ['type']` with a descending sort), cached in memory for 30 s. Rows
+are never withdrawn or individually deleted — withdrawing explicit consent means deleting the
+account, which cascades this table away with the user.
 
 ### `UserAvatarConfig` → `user_avatar_configs`
 
@@ -266,20 +277,69 @@ Turkish-locale case folding. That is gone: options are real `prayer_question_opt
 
 `prisma/migrations/`, in order:
 
-| Migration                                 | Contents (migration names do not always match what they do)                                                                                                                                                                                                                          |
-| ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `20260420201800_consent`                  | The initial baseline: `users`, `user_credentials`, `refresh_tokens`, `otp_verifications`, `password_resets`, `user_consents`, `user_avatar_configs`, `user_xp`, `user_streaks`, `follows`, `questions` + the `Gender` / `ConsentType` enums                                          |
-| `20260525184341_streak`                   | `prayer_completions`, `prayer_questions`, `prayer_question_options`, `prayer_quiz_submissions`, `user_prayer_stats`, `streak_freeze_usages` + `PrayerType` / `PrayerCategory` / `PrayerQuizStatus` / `StreakFreezeReason`                                                            |
-| `20260601120000_user_profile_fields`      | `Madhab` enum; country / city / latitude / longitude / madhab / language on `users` and `otp_verifications`                                                                                                                                                                          |
-| `20260604120000_prayer_quiz_per_question` | `prayer_quiz_questions` + `PrayerQuizQuestionStatus`                                                                                                                                                                                                                                 |
-| `20260605114914_prayer_quiz`              | only sets `language DEFAULT 'tr'` on `users` and `otp_verifications`                                                                                                                                                                                                                 |
-| `20260801120000_unify_question_bank`      | `QuestionScope` enum; `scope` / `guideId` on `prayer_questions`; `@@unique(questionId, orderIndex)` on `prayer_question_options`; copies `questions` rows in (ids preserved, `options[]` expanded into option rows) and **drops `questions`**                                        |
-| `20260801130000_prayer_late_marking`      | `PrayerCompletionStatus` enum; `status` / `xpBeforePenalty` + `(userId, status)` index on `prayer_completions`; `markWindowEndsAt` on `prayer_quiz_submissions`; `totalOnTime` / `totalLate` on `user_prayer_stats`; backfills all four (every pre-existing completion is `ON_TIME`) |
-| `20260801200000_profile_change_quotas`    | `locationChangeCount` / `madhabChangeCount` on `users`, both defaulting to 0 so every existing user keeps one change                                                                                                                                                                 |
-| `20260802120000_login_lockout`            | `failedLoginAttempts` / `lockedUntil` on `user_credentials`; `usernameUpdatedAt` on `users` (null = never renamed, so nobody is retroactively inside the rename cooldown)                                                                                                            |
-| `20260802130000_token_version`            | `tokenVersion` on `user_credentials`, default 0 — matching the `tv` claim's fallback, so tokens issued before this shipped keep validating                                                                                                                                           |
-| `20260809090333_streak_recovery`          | `recoverableStreak` (default 0) / `brokenSinceDate` (`date`, null) on `user_streaks` — the stored recovery pair a restart writes and the freeze's recovery branch consumes                                                                                                           |
-| `20260812120000_special_category_consent` | adds `SPECIAL_CATEGORY_DATA` to `ConsentType`; **deletes all `otp_verifications` rows** (transient signup drafts, lifetime ≤ 10 min — no user data is lost) so the new **NOT NULL** `specialCategoryVersion` column can be added                                                     |
+| Migration                                 | Contents (migration names do not always match what they do)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| ----------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `20260420201800_consent`                  | The initial baseline: `users`, `user_credentials`, `refresh_tokens`, `otp_verifications`, `password_resets`, `user_consents`, `user_avatar_configs`, `user_xp`, `user_streaks`, `follows`, `questions` + the `Gender` / `ConsentType` enums                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| `20260525184341_streak`                   | `prayer_completions`, `prayer_questions`, `prayer_question_options`, `prayer_quiz_submissions`, `user_prayer_stats`, `streak_freeze_usages` + `PrayerType` / `PrayerCategory` / `PrayerQuizStatus` / `StreakFreezeReason`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `20260601120000_user_profile_fields`      | `Madhab` enum; country / city / latitude / longitude / madhab / language on `users` and `otp_verifications`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| `20260604120000_prayer_quiz_per_question` | `prayer_quiz_questions` + `PrayerQuizQuestionStatus`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `20260605114914_prayer_quiz`              | only sets `language DEFAULT 'tr'` on `users` and `otp_verifications`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `20260801120000_unify_question_bank`      | `QuestionScope` enum; `scope` / `guideId` on `prayer_questions`; `@@unique(questionId, orderIndex)` on `prayer_question_options`; copies `questions` rows in (ids preserved, `options[]` expanded into option rows) and **drops `questions`**                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| `20260801130000_prayer_late_marking`      | `PrayerCompletionStatus` enum; `status` / `xpBeforePenalty` + `(userId, status)` index on `prayer_completions`; `markWindowEndsAt` on `prayer_quiz_submissions`; `totalOnTime` / `totalLate` on `user_prayer_stats`; backfills all four (every pre-existing completion is `ON_TIME`)                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `20260801200000_profile_change_quotas`    | `locationChangeCount` / `madhabChangeCount` on `users`, both defaulting to 0 so every existing user keeps one change                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `20260802120000_login_lockout`            | `failedLoginAttempts` / `lockedUntil` on `user_credentials`; `usernameUpdatedAt` on `users` (null = never renamed, so nobody is retroactively inside the rename cooldown)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `20260802130000_token_version`            | `tokenVersion` on `user_credentials`, default 0 — matching the `tv` claim's fallback, so tokens issued before this shipped keep validating                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `20260809090333_streak_recovery`          | `recoverableStreak` (default 0) / `brokenSinceDate` (`date`, null) on `user_streaks` — the stored recovery pair a restart writes and the freeze's recovery branch consumes                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `20260812120000_special_category_consent` | adds `SPECIAL_CATEGORY_DATA` to `ConsentType`; **deletes all `otp_verifications` rows** (transient signup drafts, lifetime ≤ 10 min — no user data is lost) so the new **NOT NULL** `specialCategoryVersion` column can be added                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| `20260822115649_audit_fixes_and_features` | audit fixes: `PasswordHashScheme` enum + `hashScheme` on `user_credentials` (defaults to `LEGACY_CONCAT` so existing hashes keep validating and upgrade on next login), `familyId` on `refresh_tokens` (nullable — pre-existing tokens have no family), `failedAttempts` on `otp_verifications`, `withdrawnAt` on `user_consents` (dropped again by `20260823233500_drop_consent_withdrawal`). New feature tables: `fasting_days`, `push_subscriptions`, `notification_preferences`, `notification_deliveries`, `question_mastery` + the `FastingStatus` / `NotificationTopic` / `NotificationDeliveryStatus` enums. It also created `qada_ledgers`, `qada_entries` and `QadaSource`, all dropped again by `20260823201500_drop_qada_ledger` |
+| `20260823193603_drop_user_avatar`         | drops the unused `users.avatar` column (0 rows held a value)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `20260823201500_drop_qada_ledger`         | drops `qada_entries` (137 rows) and `qada_ledgers` (3 rows) with their FKs, drops `QadaSource`, and recreates `NotificationTopic` without `QADA_REMINDER` — the kaza ledger was removed from the product                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| `20260823233500_drop_consent_withdrawal`  | drops `user_consents.withdrawnAt` (0 rows held a value) — the consent-withdrawal feature was removed from the product                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+
+### Removed feature: kaza (qada) ledger
+
+`qada_ledgers`, `qada_entries` and the `QadaSource` enum were created by
+`20260822115649_audit_fixes_and_features` for a kaza ledger that was subsequently dropped from the
+product, and never had a reader or a writer in `src/`. They were removed from the database by
+`20260823201500_drop_qada_ledger`, which also recreated `NotificationTopic` without its
+`QADA_REMINDER` value (Postgres has no `ALTER TYPE … DROP VALUE`, so the enum is rebuilt and the two
+`topic` columns are re-typed inside one transaction).
+
+The drop discarded 3 `qada_ledgers` rows and 137 `qada_entries` rows. Every entry was
+`AUTO_DETECTED` — derived from missed prayer windows rather than typed by a user — and the only
+hand-entered values, the ledgers' `manualDebt` / `manualFulfilled` counters, belonged solely to the
+`ng_fix_new` and `ng_qada` test accounts. Do not reintroduce these models; the feature is gone, not
+paused.
+
+### Removed feature: consent withdrawal
+
+`user_consents.withdrawnAt` was added by `20260822115649_audit_fixes_and_features` for a
+`POST /consent/withdraw` endpoint that stamped the column and deleted everything processed under the
+consent. The endpoint was removed from the product — a user who wants to withdraw explicit consent
+deletes the account (`DELETE /auth/me`), which is what `/privacy` and `/explicit-consent` have
+always said. `20260823233500_drop_consent_withdrawal` dropped the column; no row had ever held a
+value, so no audit trail was lost. Do not reintroduce a partial-withdrawal path: mezhep and worship
+records are the app's core function and there is no lawful basis to keep the account without them.
+
+### Tables that exist but nothing writes yet
+
+The same migration also created the tables for three product features that are **not built**. As of
+2026-08-22, `grep` over `src/` finds no `create`/`upsert`/`update` against any of them:
+
+| Table                      | Intended feature           | What touches it today                                     |
+| -------------------------- | -------------------------- | --------------------------------------------------------- |
+| `push_subscriptions`       | Vakit bildirimi (Web Push) | read by the KVKK export only (keys deliberately excluded) |
+| `notification_preferences` | Vakit bildirimi (Web Push) | read by the KVKK export only                              |
+| `notification_deliveries`  | Vakit bildirimi (Web Push) | **nothing at all**                                        |
+| `fasting_days`             | Ramazan modu               | read by the KVKK export only                              |
+| `question_mastery`         | Quiz spaced repetition     | read by the KVKK export only                              |
+
+Two consequences a future agent must not misread:
+
+1. `GET /users/me/export` emits `notifications` and `quizzes.mastery` sections that are **always
+   empty**, and `fasting` is empty too. That is correct for today's code, not a bug.
+2. `fasting` in `/worship` is a _computed_ daily progress (`FastingProgressService`) with no
+   persistence — it has nothing to do with `fasting_days`. Do not wire them together casually.
 
 Note that `schema.prisma` declares `datasource db { provider = "postgresql" }` with **no `url`** —
 the connection string is supplied by [`prisma.config.ts`](../prisma.config.ts), which reads

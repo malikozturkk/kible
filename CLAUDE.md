@@ -156,7 +156,7 @@ yarn start:dev                # watch mode, listens on $PORT (default 3000)
 yarn lint                     # eslint --fix
 yarn format                   # prettier --write .
 yarn build                    # nest build
-yarn test                     # jest (two specs: app.controller, http-exception.filter)
+yarn test                     # jest (one spec: src/app.controller.spec.ts)
 yarn prisma:generate          # regenerate client after schema.prisma changes
 yarn prisma:seed              # fill both question banks (idempotent, see docs/DEVELOPMENT.md)
 yarn prisma:studio
@@ -174,7 +174,7 @@ exist** in this repo — the script will fail until that config is added.
 ```
 prisma/
   schema.prisma               # single source of truth for the DB
-  migrations/                 # 12 migrations, oldest 20260420201800_consent
+  migrations/                 # 15 migrations, oldest 20260420201800_consent
   seed.ts                     # idempotent seed runner — `yarn prisma:seed`
   seeds/                      # seed data: prayer-questions/*.ts, guide-questions.ts
 src/
@@ -303,6 +303,15 @@ are warnings. Run `yarn lint` before finishing.
   then freeze ≡ freeze then pray). Do not "simplify" either side away — the two orders must stay
   equivalent.
 
+- **`GET /worship/public/prayer-times` is intentionally unauthenticated, and must stay that way.**
+  It is the only worship route without `JwtAuthGuard`. The frontend statically prerenders 81
+  province pages (`/namaz-vakitleri/[sehir]`) from it at build time and on ISR revalidation, where
+  no session exists. `PublicPrayerTimesService` reads no database row and returns no personal data,
+  so putting it behind the guard would break those pages without protecting anything. Two matching
+  constraints: it carries `@Throttle({ default: THROTTLE_PUBLIC_PRAYER_TIMES })` (120/min) because
+  the default 10/min throttles a single Next.js server's revalidation burst, and it must keep
+  returning a canonical province name so the frontend's slug stays stable.
+
 - **Auth is rate limited in two independent layers.** Per-IP throttling on every credential- or
   email-touching route (`src/common/throttler/throttle.constants.ts`, registered globally by
   `AppThrottlerModule`) **plus** a per-account lockout in `LoginAttemptService`. Neither is
@@ -337,8 +346,37 @@ are warnings. Run `yarn lint` before finishing.
 - **Access tokens are revocable.** Each carries a `tv` claim equal to
   `user_credentials.tokenVersion`; `JwtStrategy` rejects a mismatch. Any change that must end every
   session increments that counter — revoking refresh tokens alone leaves issued access tokens
-  working until they expire. `PATCH /auth/profile` returns a replacement pair so the caller is not
-  signed out by their own action.
+  working until they expire. `PATCH /auth/profile` returns a replacement `accessToken` (and
+  refreshes the refresh cookie) so the caller is not signed out by their own action.
+- **Password hashing is versioned, and the scheme lives in the row.** `user_credentials.hashScheme`
+  is `HMAC_BCRYPT` for anything hashed today: the password is first HMAC-SHA256'd with `PEPPER`,
+  base64'd, and only then bcrypt'd. This exists because bcrypt silently truncates at **72 bytes** —
+  with the old `password + PEPPER` concatenation a long `PEPPER` could push the user's own
+  characters past the cutoff, so two different passwords could hash identically. Rows created before
+  the change carry `LEGACY_CONCAT` and are verified the old way, then **re-hashed in place on the
+  next successful login**. All hashing and verification goes through
+  `src/auth/utils/password-hash.util.ts` — never call `bcrypt` directly, and never "simplify" the
+  scheme check away: doing so locks out every un-migrated account. `PEPPER` remains immutable.
+- **Login returns early for unknown users, and that is a deliberate product decision.** When no user
+  matches, `login()` throws `INVALID_CREDENTIALS` without running bcrypt. A dummy comparison used to
+  be burned there so "no such account" and "wrong password" cost the same wall-clock time; it was
+  removed on request as unnecessary. The consequence, recorded so nobody rediscovers it as a "bug":
+  response time distinguishes a registered identifier from an unregistered one (~0.01 s vs ~0.2 s),
+  i.e. login is a user-enumeration oracle that rate limiting does not close. Both paths still throw
+  the same `INVALID_CREDENTIALS`, so the _message_ leaks nothing.
+- **The refresh token lives in an httpOnly cookie, and rotation is family-tracked.** It is not in
+  any response body; `src/common/utils/auth-cookie.util.ts` owns setting, reading and clearing it,
+  and `issueAuthResponse()` strips `refreshToken` from the payload. Every rotation chain shares a
+  `familyId`; presenting an already-revoked token revokes **the entire family**, because the only
+  two explanations are a stolen token or a client bug, and both warrant ending the session. Do not
+  "fix" the reuse branch into a plain 401 — that silently restores replayability.
+- **Explicit consent is withdrawn by deleting the account, and there is no other path.** The consent
+  module exposes exactly `GET /consent/status` and `POST /consent/accept`. A partial withdrawal
+  endpoint (`POST /consent/withdraw` + `user_consents.withdrawnAt`) existed and was removed from the
+  product; `20260823233500_drop_consent_withdrawal` dropped the column. `/privacy` §10 and
+  `/explicit-consent` §3 already say the same thing: mezhep and worship records are the app's core
+  function, so withdrawing consent means the account goes. Do not reintroduce a partial-withdrawal
+  path — see `docs/DATA-MODEL.md`, "Removed feature: consent withdrawal".
 - **Credential rules are shared.** `src/auth/constants/credential.constants.ts` is the one place
   username length and password complexity are defined; register, profile update and reset all use
   it. The frontend mirrors them for UX only — the backend is the boundary.
@@ -371,8 +409,15 @@ These are verified facts about the current tree, not bugs to fold into an unrela
   password-reset link, so it must stay a bare `scheme://host:port`; there is no list/regex support,
   so a second frontend origin needs a code change. The port is configurable via `PORT`, defaulting
   to `3000`.
-- Test coverage is effectively nil: `src/app.controller.spec.ts` and
-  `src/common/filters/http-exception.filter.spec.ts` are the only specs.
+- **Five tables have no writer.** `push_subscriptions`, `notification_preferences`,
+  `notification_deliveries`, `fasting_days` and `question_mastery` were created by
+  `20260822115649_audit_fixes_and_features` for the Web Push, Ramazan and quiz-mastery features,
+  none of which are built. Only the KVKK export reads them, so those export sections are always
+  empty. See `docs/DATA-MODEL.md`. Do not assume a mastery/notification record exists.
+- Test coverage is effectively nil: `src/app.controller.spec.ts` is the **only** spec in the tree
+  (verified by `find src -name '*.spec.ts'`). This file and `docs/ARCHITECTURE.md` previously also
+  named `src/common/filters/http-exception.filter.spec.ts`; that file does not exist, so
+  `GlobalExceptionFilter`'s behavior is **not** pinned by any test.
 
 ## Safety notes
 

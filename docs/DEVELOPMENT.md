@@ -27,8 +27,8 @@ questions, `GET /gamification/prayer-questions/:type` fails with `INSUFFICIENT_P
 
 ## Environment variables
 
-All of them are required except `TRUST_PROXY`. Missing values fail at different times, which matters
-when debugging a boot error.
+All of them are required except `TRUST_PROXY`, `LOG_LEVEL`, `COOKIE_SAMESITE` and `COOKIE_DOMAIN`.
+Missing values fail at different times, which matters when debugging a boot error.
 
 | Variable                                       | Used by                                                | Failure mode if missing                                                                 |
 | ---------------------------------------------- | ------------------------------------------------------ | --------------------------------------------------------------------------------------- |
@@ -39,6 +39,8 @@ when debugging a boot error.
 | `FRONTEND_BASE_URL`                            | password-reset link **and** the CORS origin            | link becomes `undefined/reset-password?...`; CORS falls back to `http://localhost:3000` |
 | `TRUST_PROXY`                                  | Express `trust proxy` → the IP the throttler keys on   | **optional**; empty = trust nothing. See below                                          |
 | `LOG_LEVEL`                                    | pino log level (`trace`…`fatal`)                       | **optional**; defaults to `info` when `NODE_ENV=production`, otherwise `debug`          |
+| `COOKIE_SAMESITE`                              | `SameSite` of the refresh-token cookie                 | **optional**; defaults to `lax`. `none` forces `Secure`                                 |
+| `COOKIE_DOMAIN`                                | `Domain` of the refresh-token cookie                   | **optional**; empty = host-only cookie                                                  |
 | `CONSENT_VERSION_TERMS_OF_SERVICE`             | `consentConfig`                                        | **throws at boot**: `CONSENT_VERSIONS_NOT_CONFIGURED`                                   |
 | `CONSENT_VERSION_PRIVACY_POLICY`               | `consentConfig`                                        | same                                                                                    |
 | `CONSENT_VERSION_SPECIAL_CATEGORY_DATA`        | `consentConfig`                                        | same                                                                                    |
@@ -56,6 +58,18 @@ hash, so treat it as immutable once any account exists.
 origin CORS accepts (trailing slashes are stripped). Consequences: the frontend must be served from
 exactly that scheme/host/port, the value must not contain a path, and there is no way to allow a
 second origin without a code change.
+
+The refresh token is delivered as an **httpOnly cookie** (`refresh_token`), not in the response body
+— client-side JavaScript cannot read it, so an XSS cannot steal a long-lived session. Two optional
+variables tune that cookie:
+
+| Variable          | Value                               | When you need it                                                    |
+| ----------------- | ----------------------------------- | ------------------------------------------------------------------- |
+| `COOKIE_SAMESITE` | `lax` (default) / `strict` / `none` | `none` only when the frontend is on a different site — forces HTTPS |
+| `COOKIE_DOMAIN`   | empty (default) / `.example.com`    | share the cookie across subdomains                                  |
+
+Because the cookie is sent cross-origin, `FRONTEND_BASE_URL` must match the frontend exactly and the
+frontend must send credentialed requests (`withCredentials: true`).
 
 `TRUST_PROXY` decides what `req.ip` is, and therefore what the per-IP rate limiter buckets on. Leave
 it empty locally. In front of a reverse proxy set it, or every user in the world shares one bucket:
@@ -179,6 +193,27 @@ TypeScript is **not** in full strict mode: `strictNullChecks` is on, but `noImpl
 ```bash
 yarn lint && yarn format
 ```
+
+### Known lint violations
+
+`npx eslint --no-fix src` is **not** clean on a fresh checkout. As of 2026-08-23 it reports 46
+problems (40 errors, 6 warnings) across 18 files, none of them in code written for the audit fixes:
+
+| File(s)                                                                 | Rule                                                          |
+| ----------------------------------------------------------------------- | ------------------------------------------------------------- |
+| `guides/strategies/*.strategy.ts` (8 files)                             | `require-await` — `getGuide()` is async but returns a literal |
+| `otp/guards/otp-jwt.guard.ts`, `otp/otp.service.ts`                     | `no-unsafe-*` — untyped JWT payload / `catch (e: any)`        |
+| `auth/auth.service.ts`                                                  | `no-unsafe-*` on the `mutualFollowers` preview mapping        |
+| `auth/strategies/jwt.strategy.ts`                                       | `no-unused-vars` on the `_credentials` rest-destructure       |
+| `auth/services/login-attempt.service.ts`                                | `no-empty` — two intentional `catch {}`                       |
+| `auth/password-reset.service.ts`                                        | `no-unused-vars` on an unused `err` binding                   |
+| `email/email.service.ts`, `common/interceptors/response.interceptor.ts` | `no-unsafe-member-access`                                     |
+| `gamification/services/prayer-quiz.service.ts`                          | `require-await`, unused `questions` parameter                 |
+| `main.ts`                                                               | `no-floating-promises` (warning) on `bootstrap()`             |
+
+These are observations, not a backlog — see the "Known gaps" rule in `CLAUDE.md`. What the rule in
+`CLAUDE.md` does require is that **your** changes do not add to this list: run
+`npx eslint --no-fix <the files you touched>` before finishing.
 
 ## Manual API walkthrough
 

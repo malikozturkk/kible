@@ -75,10 +75,16 @@ The frontend mirrors them in `secde/src/validations/auth.validation.ts` for pre-
 ### `POST /auth/login` — — · `200`
 
 `{ "identifier": "<email or username>", "password": "…" }` — the identifier is routed by an email
-regex. Returns `{ accessToken, refreshToken, user }`.
+regex. Returns `{ accessToken, user }` and sets the refresh token as an **httpOnly cookie** (see
+[Refresh-token cookie](#refresh-token-cookie) below) — it is never in the response body.
 
 Errors: `INVALID_CREDENTIALS` (401) for both unknown user and wrong password;
 `ACCOUNT_TEMPORARILY_LOCKED` (401) once the account is locked out.
+
+The two `INVALID_CREDENTIALS` paths are indistinguishable by _message_ but **not by timing**: an
+unknown identifier returns without running bcrypt (~0.01 s) while a known one pays the hash (~0.2
+s). A dummy comparison used to equalise them; it was removed deliberately. Treat login as a
+user-enumeration oracle when reasoning about anything downstream — do not document it as closed.
 
 Two independent limits guard this route:
 
@@ -91,19 +97,40 @@ The password is compared _before_ the lock is reported, so a locked account is i
 from a wrong password to a caller who does not know the password. A successful login clears the
 counter; so does a completed password reset.
 
+### Refresh-token cookie
+
+The refresh token is **not returned in any response body**. `/auth/login`, `/otp/verify`,
+`/auth/refresh` and a password-changing `PATCH /auth/profile` all deliver it as:
+
+```
+Set-Cookie: refresh_token=<64-hex>; HttpOnly; Path=/; Max-Age=86400; SameSite=<COOKIE_SAMESITE|lax>
+```
+
+Browser JavaScript cannot read it, so an XSS can no longer lift a 24-hour session. Callers must send
+credentialed requests (`fetch(..., { credentials: 'include' })` / axios `withCredentials: true`).
+`COOKIE_SAMESITE` and `COOKIE_DOMAIN` tune the attributes; `SameSite=None` forces `Secure`.
+
+A `refreshToken` in the request body is still accepted as a **fallback** so a stale client build
+does not break, but nothing in the current frontend sends one.
+
 ### `POST /auth/refresh` — — · `200`
 
-`{ "refreshToken": "<64-hex>" }` → a new `{ accessToken, refreshToken, user }`. Errors:
+No body — the `refresh_token` cookie is read. → `{ accessToken, user }` plus a fresh cookie. Errors:
 `INVALID_OR_EXPIRED_REFRESH_TOKEN` (401). Throttled: 20 requests / minute.
 
-The presented refresh token **is revoked** as part of issuing the replacement pair (rotation), so
-replaying it returns `INVALID_OR_EXPIRED_REFRESH_TOKEN`.
+The presented refresh token **is revoked** as part of issuing the replacement (rotation).
+
+**Reuse detection.** Every rotation chain shares a `familyId`. Replaying an already-revoked token is
+treated as theft: the whole family is revoked, so both the attacker's copy and the legitimate user's
+current token stop working and the user must log in again. This is the standard OAuth
+refresh-token-rotation defence — without it, a stolen token could be replayed until it expired while
+the victim noticed nothing.
 
 ### `POST /auth/logout` — `JWT` · `200`
 
-`{ "refreshToken": "…" }` → `null`. Marks that token `isRevoked`. Errors: `INVALID_REFRESH_TOKEN`
-(401, also when the token belongs to another user), `TOKEN_ALREADY_INVALIDATED` (401),
-`REFRESH_TOKEN_EXPIRED` (401).
+No body — the `refresh_token` cookie is read and cleared. → `null`. Marks that token `isRevoked`.
+Errors: `INVALID_REFRESH_TOKEN` (401, also when the token belongs to another user),
+`TOKEN_ALREADY_INVALIDATED` (401), `REFRESH_TOKEN_EXPIRED` (401).
 
 ### `DELETE /auth/me` — `JWT` · `200`
 
@@ -125,7 +152,6 @@ Profile of `:username` as seen by the caller.
 ```jsonc
 {
   "username": "…",
-  "avatar": null,
   "createdAt": "…",
   "country": "…",
   "city": "…",
@@ -157,7 +183,6 @@ All fields optional; only the supplied ones change.
 ```jsonc
 {
   "username": "new_name", // 3–20 chars; at most one change per 30 days
-  "avatar": "…",
   "gender": "FEMALE", // stored on the avatar config
   "avatarColors": { "hair": "#2e1f14" }, // partial patch, each ^#[0-9A-Fa-f]{6}$
   "currentPassword": "…",
@@ -191,13 +216,17 @@ Returns the updated user with `avatarCustomization`, plus `locationChangeCount` 
 **When the password changed**, the response also carries a replacement token pair:
 
 ```jsonc
-{ /* …user fields… */, "tokens": { "accessToken": "…", "refreshToken": "…" } }
+{ /* …user fields… */, "tokens": { "accessToken": "…" } }
 ```
 
 A password change ends every _other_ session: `passwordUpdatedAt` is bumped, `tokenVersion` is
 incremented (retiring every access token already issued, including the one that made this request)
-and all refresh tokens are revoked. The caller must adopt `tokens` or its own next request will
-`401`. Hashing uses cost **12**, matching register and reset.
+and all refresh tokens are revoked; a replacement refresh cookie is set. The caller must adopt
+`tokens.accessToken` or its own next request will `401`. Hashing uses cost **12**, matching register
+and reset.
+
+Sending the current password as `newPassword` is rejected with `NEW_PASSWORD_MUST_DIFFER` (400) — it
+used to succeed, burning every session and both change counters for no change at all.
 
 Errors: `USERNAME_ALREADY_EXISTS` (409), `USERNAME_CHANGE_COOLDOWN_ACTIVE` (409 — renamed within the
 last `USERNAME_CHANGE_COOLDOWN_DAYS`, 30), `PASSWORD_FIELDS_REQUIRED` (400),
@@ -212,20 +241,17 @@ last `USERNAME_CHANGE_COOLDOWN_DAYS`, 30), `PASSWORD_FIELDS_REQUIRED` (400),
 Valid `avatarColors` keys: `iris`, `pupil`, `hair`, `skin`, `lips`, `nose`, `earInner`, `neck`,
 `eyebrow`, `outfit`, `background`. Unset keys fall back to `DEFAULT_AVATAR_COLORS`.
 
-### `POST /auth/resume-registration` — — · `200` · throttled 5 req/min
+### Resuming a pending registration
 
-`{ "email": "…" }` → `{ "tempToken": "<jwt>" }`.
+There is **no** `/auth/resume-registration` endpoint. It used to exist and would hand a fresh
+`tempToken` to anyone who knew a pending registrant's email address — no password, no code — letting
+an attacker invalidate the victim's temp token at will. It was removed.
 
-Re-issues a temp token for a registration that is **already pending**, so a user who loses the
-in-memory one (page refresh on `/verify-otp`, closed tab, back button) is not locked out for the
-remaining ~10 minutes of the registration window.
-
-It creates nothing and sends no email. The pending row's `tokenHash` is rewritten, which invalidates
-the previous temp token — only one is ever live. The OTP code and its 3-minute clock are untouched.
-
-Errors: `NO_PENDING_REGISTRATION` (400) — returned identically for an unknown email and an expired
-registration, so this is not an account-existence oracle. The token alone grants nothing:
-`/otp/verify` still requires the emailed code.
+Resumption now lives inside `POST /auth/register`: calling it again with the same email, the same
+username and the **correct password** verifies the password against the pending record and returns a
+new `tempToken`. Nothing new is created and no email is sent; the OTP code and its 3-minute clock
+are untouched. Because the caller has proven knowledge of the password, rotating the pending
+`tokenHash` there is safe.
 
 ### `POST /auth/forgot-password` — —
 
@@ -257,13 +283,27 @@ Errors: `PASSWORDS_DO_NOT_MATCH` (400), `INVALID_OR_EXPIRED_TOKEN` (400), `USER_
 
 ### Social
 
-| Method | Path                        | Auth  | Returns                                                     |
-| ------ | --------------------------- | ----- | ----------------------------------------------------------- |
-| `POST` | `/auth/:username/follow`    | `JWT` | `{ "following": true \| false }` — toggles                  |
-| `GET`  | `/auth/:username/followers` | `JWT` | `[{ username, avatar, avatarCustomization }]`, newest first |
-| `GET`  | `/auth/:username/following` | `JWT` | same shape                                                  |
+| Method | Path                        | Auth  | Returns                                     |
+| ------ | --------------------------- | ----- | ------------------------------------------- |
+| `POST` | `/auth/:username/follow`    | `JWT` | `{ "following": true \| false }` — toggles  |
+| `GET`  | `/auth/:username/followers` | `JWT` | `{ items, meta }` — paginated, newest first |
+| `GET`  | `/auth/:username/following` | `JWT` | same shape                                  |
 
 Follow errors: `USER_NOT_FOUND` (404), `CANNOT_FOLLOW_YOURSELF` (400).
+
+**The follow lists are paginated.** `?page` (default 1) and `?pageSize` (default 20, **max 50** —
+anything larger is a 400 `VALIDATION_ERROR`) from the shared `PaginationDto`:
+
+```jsonc
+{
+  "items": [{ "username": "…", "avatar": null, "avatarCustomization": { … } }],
+  "meta": { "page": 1, "pageSize": 20, "total": 137, "totalPages": 7, "hasNextPage": true },
+}
+```
+
+They used to return the **entire** list unbounded, so one request against a popular account
+serialized every follower row. Use `meta.hasNextPage` to page; the frontend hooks do this with
+`useInfiniteQuery` and flatten the pages back into a single array for consumers.
 
 ---
 
@@ -327,18 +367,83 @@ the current code is still valid), `INSUFFICIENT_TIME_FOR_NEW_OTP` (400).
 `null`. The version must equal the server's current version, otherwise `CONSENT_OUTDATED` (400).
 Re-accepting the same version is a no-op (the `P2002` unique violation is swallowed).
 
-Both routes carry `@ConsentBypass()`, so they stay reachable while a re-accept is pending.
+All consent routes carry `@ConsentBypass()`, so they stay reachable while a re-accept is pending.
+
+There is **no withdrawal endpoint**. Explicit consent (`SPECIAL_CATEGORY_DATA`) is withdrawn by
+deleting the account (`DELETE /auth/me`) — that is what the legal texts direct the user to, because
+mezhep and worship records are the app's core function and cannot be processed under anything else.
 
 ---
 
 ## Worship — `src/worship/worship.controller.ts`
+
+### `GET /worship/public/prayer-times?city=&date=&days=&madhab=` — **no guard**
+
+The only unauthenticated worship route. It exists so the frontend can statically render its
+`/namaz-vakitleri/[sehir]` SEO pages without a session; it reads nothing from the database and
+returns no personal data.
+
+| Query    | Required | Notes                                                                                   |
+| -------- | -------- | --------------------------------------------------------------------------------------- |
+| `city`   | yes      | Province name, matched case/accent-insensitively against the 81-province catalog        |
+| `date`   | no       | `YYYY-MM-DD`, `@IsCalendarDate()`. Defaults to today **in the province's own timezone** |
+| `days`   | no       | Calendar length, 1–31, default 7                                                        |
+| `madhab` | no       | `hanafi` \| `shafi`; anything else falls back to `DEFAULT_MADHAB` (`Shafi`)             |
+
+An unknown province returns **404 `CITY_NOT_FOUND`** (`findTrCity()` in
+`src/auth/constants/tr-cities.constants.ts` — the non-throwing sibling of
+`resolveCityCoordinates()`, which throws `INVALID_CITY` and is still what register/profile use).
+
+Rate limited at `THROTTLE_PUBLIC_PRAYER_TIMES` (120 req/min) rather than the global default of 10:
+one Next.js server refreshes all 81 province pages in bursts during ISR revalidation.
+
+Handled by `PublicPrayerTimesService` (`src/worship/services/`), which is deliberately separate from
+`WorshipService.adhan()`: it has no user, no countdown, no fasting progress and no day progress, so
+its output is a pure function of (province, date, madhab) and is safe to cache and prerender.
+
+```jsonc
+{
+  "city": "İstanbul", // canonical catalog spelling, whatever was sent
+  "latitude": 41.0082,
+  "longitude": 28.9784,
+  "timezone": "Europe/Istanbul",
+  "calculationMethod": "Turkey",
+  "madhab": "Shafi",
+  "today": {/* same shape as days[0] */},
+  "days": [
+    {
+      "date": "2026-08-27",
+      "weekdayName": "Perşembe",
+      "gregorianLabel": "27 Ağustos 2026",
+      "hijriDate": "Hicri 14.03.1448",
+      "hijriMonthName": "Rebiülevvel",
+      "times": {
+        "fajr": "04:47",
+        "sunrise": "06:19",
+        "dhuhr": "13:11",
+        "asr": "16:53",
+        "maghrib": "19:52",
+        "isha": "21:17",
+      },
+    },
+  ],
+}
+```
+
+Times are `HH:mm` strings in the province's timezone, not instants; a value that adhan cannot
+compute is rendered `--:--` rather than dropped.
 
 ### `GET /worship?date=YYYY-MM-DD` — `JWT`
 
 `date` is **required** and validated by `@IsCalendarDate()`
 (`src/common/validators/is-calendar-date.validator.ts`), which checks the calendar and not just the
 shape: `2026-13-45`, `2026-02-30`, `not-a-date` and an empty value all give **400
-`VALIDATION_ERROR`** with `date must be YYYY-MM-DD` in `attachment`. The same validator guards
+`VALIDATION_ERROR`** with `date must be YYYY-MM-DD between 1970 and 2100` in `attachment`.
+
+The **year range is bounded** as well. A well-formed but absurd year (`0001-01-01`, `9999-12-31`)
+used to return `200`: adhan's internal `new Date(year, …)` maps two-digit years into the 1900s, so
+the response claimed to describe `1901-01-01`. Nothing was exploitable — it is a read-only endpoint
+— but it burned computation and returned nonsense. The same validator guards
 `/gamification/daily-prayers` and `/gamification/prayer-history`.
 
 Coordinates, madhab and timezone all come from the authenticated user. `meta.hijriDate` /
@@ -718,6 +823,21 @@ Full statistics for the caller: level (with `xp`, `totalXp`, `currentLevelXp`, `
 `streak.lastActiveDate` is a **calendar day** (`"2026-07-31"`), not an instant — it is serialized
 with `LocalDate.fromPersisted(...).toISO()` to match the `@db.Date` column it comes from.
 
+### `GET /users/me/export` — `JWT` (consent-bypassed) · `200` · throttled 3 req/hour
+
+The caller's complete personal data as one JSON document — KVKK m.11/d, the right to obtain a copy.
+`Content-Disposition: attachment; filename="namazgo-verilerim.json"`.
+
+Sections: `meta`, `profile`, `account`, `consents`, `avatarConfig`, `gamification`, `prayers`,
+`quizzes`, `fasting`, `social`, `notifications`.
+
+Deliberately **excluded**: the password hash, refresh/reset token hashes, OTP codes, and push
+subscription keys (`p256dh` / `auth`). Those are security material, not the user's own data —
+handing them out in an export would be a credential disclosure, not a transparency measure.
+
+Marked `@ConsentBypass()`: a pending re-accept must not stand between a user and a copy of their own
+data.
+
 ### `GET /users/:username/stats`
 
 The public subset: level (`level`, `badgeKey`, `progressPercent` only), streak (`current`,
@@ -753,7 +873,6 @@ Rankings. Replaced a hardcoded five-person list that the dashboard rendered as i
       "rank": 1,
       "username": "…",
       "city": "İstanbul", // city only — never coordinates
-      "avatar": null,
       "avatarCustomization": {},
       "score": 7, // in the unit implied by metric
       "isCurrentUser": false,
@@ -838,12 +957,19 @@ rather than a domain key).
 ### `POST /question/guide/check` — —
 
 `{ "questionId": "<uuid>", "optionId": "<uuid>" }` →
-`{ "isCorrect": true, "correctOptionId": "<uuid>" }`.
+`{ "isCorrect": true, "correctOptionId": "<uuid>", "explanation": "…" | null }`.
 
 Grading is an **option-id lookup**, not a text comparison — the old `toLocaleLowerCase('tr-TR')`
 match is gone, so punctuation or whitespace drift in an option can no longer mark a correct answer
-wrong. **No authentication**, and `correctOptionId` is returned on every call so the client can
-highlight the right choice.
+wrong.
+
+`correctOptionId` is returned on every call so the client can highlight the right choice — that is
+the teaching UX, not a leak to close. `explanation` is the question's stored rationale and is
+returned alongside it; the frontend shows it after both correct and wrong answers, because colouring
+the right option green never answered _why_.
+
+**No authentication.** The route is now covered by the global throttler (10 req/min per IP), which
+is what bounds bulk scraping of the answer key.
 
 Errors:
 
