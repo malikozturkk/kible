@@ -187,7 +187,9 @@ src/
   auth/                       # register/login/refresh/logout, profile, password reset, follow
   otp/                        # registration OTP; the user row is created here, not in auth
   email/                      # Mailjet wrapper
-  consent/                    # ToS / privacy-policy versioning + ConsentGuard (via JwtAuthGuard)
+  legal/                      # yasal metin sürüm kataloğu (LegalService, @Global) + GET /legal/documents
+  consent/                    # kullanıcı rıza kayıtları + ConsentGuard (via JwtAuthGuard);
+                              # sürümleri LegalService'ten alır, kendi env'ini okumaz
   users/                      # user search, public/self stats
   worship/                    # prayer times (PrayerTimesService = the single source),
                               # countdowns, fasting + day progress
@@ -197,7 +199,7 @@ src/
   questions/                  # guide-quiz check (shares the question bank, scope = GUIDE)
   notifications/              # Web Push: abonelikler, KVKK başlık rızaları, cron tetikleyici
   telemetry/                  # POST /telemetry/client-errors — frontend error reports → error log
-  config/consent.config.ts    # fails fast if consent version env vars are missing
+  config/legal.config.ts      # single source of legal doc versions/dates; fails fast if env is missing/malformed
 ```
 
 ## Conventions you must follow
@@ -427,13 +429,14 @@ These are verified facts about the current tree, not bugs to fold into an unrela
   0, so `POST /gamification/action` with `STREAK_FREEZE` always fails with
   `NO_STREAK_FREEZE_AVAILABLE` unless the row is edited by hand. A granting mechanic (a paid store)
   is planned but deliberately not built yet — do not add an automatic one.
-- `@Public()` (`src/common/decorators/public.decorator.ts`) is defined and read by `ConsentGuard`,
-  but never applied to any handler.
+- `@Public()` (`src/common/decorators/public.decorator.ts`) is read by `ConsentGuard` and applied to
+  `GET /legal/documents`; the other unauthenticated route (`GET /worship/public/prayer-times`)
+  simply carries no guard.
 - `DEFAULT_MADHAB` (`'HANAFI'`) and `DEFAULT_LANGUAGE` in `src/auth/constants/` are unused; the
   Prisma default for `User.madhab` is `SHAFI`. Don't assume the constant is authoritative.
 - `RegisterDto.termsAccepted` / `privacyPolicyAccepted` / `specialCategoryDataAccepted` are
   validated as `Equals(true)` but never read by `AuthService.register()` — the recorded consent
-  versions come from the env config (`CONSENT_VERSION_*`) instead.
+  versions come from the env config (`CONSENT_VERSION_*`, via `LegalService`) instead.
 - `User.gender` does not exist; gender lives on `user_avatar_configs` (and transiently on
   `otp_verifications`).
 - Throttler storage is the in-memory default, so limits are **per instance**. Running more than one

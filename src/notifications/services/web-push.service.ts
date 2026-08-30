@@ -6,9 +6,7 @@ import { PUSH_TTL_SECONDS } from '../constants/notification.constants';
 import { WEB_PUSH_CONFIG_KEY, WebPushConfig } from '../config/web-push.config';
 
 export type PushSendOutcome =
-  | { status: 'SENT' }
-  | { status: 'GONE' }
-  | { status: 'FAILED'; statusCode?: number };
+  { status: 'SENT' } | { status: 'GONE' } | { status: 'FAILED'; statusCode?: number };
 
 @Injectable()
 export class WebPushService implements OnModuleInit {

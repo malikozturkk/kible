@@ -68,8 +68,8 @@ register, `PATCH /auth/profile` and `POST /auth/reset-password`, so no path is w
 The frontend mirrors them in `secde/src/validations/auth.validation.ts` for pre-submit feedback only
 — the backend is the boundary.
 
-> The accepted consent **versions** are read from the server's `CONSENT_VERSION_*` env vars, not
-> from the request. `termsAccepted` / `privacyPolicyAccepted` / `specialCategoryDataAccepted` are
+> The accepted consent **versions** are read from the server's `CONSENT_VERSION_*` env vars (via
+> `LegalService`), not from the request. `termsAccepted` / `privacyPolicyAccepted` / `specialCategoryDataAccepted` are
 > validated but otherwise unused.
 
 ### `POST /auth/login` — — · `200`
@@ -372,6 +372,52 @@ All consent routes carry `@ConsentBypass()`, so they stay reachable while a re-a
 There is **no withdrawal endpoint**. Explicit consent (`SPECIAL_CATEGORY_DATA`) is withdrawn by
 deleting the account (`DELETE /auth/me`) — that is what the legal texts direct the user to, because
 mezhep and worship records are the app's core function and cannot be processed under anything else.
+
+---
+
+## Legal — `src/legal/legal.controller.ts`
+
+### `GET /legal/documents` — **no guard** · throttled 120 req/min
+
+The single source of every legal-document version in the product. The frontend hardcodes no version
+and no "last updated" date — the legal pages, the consent gate and the cookie banner all read this
+route.
+
+```jsonc
+{
+  "documents": [
+    {
+      "key": "TERMS_OF_SERVICE",
+      "version": "1.0.0",
+      "effectiveDate": "2026-08-12",
+      "requiresConsentRecord": true,
+    },
+    {
+      "key": "PRIVACY_POLICY",
+      "version": "1.0.0",
+      "effectiveDate": "2026-08-12",
+      "requiresConsentRecord": true,
+    },
+    {
+      "key": "SPECIAL_CATEGORY_DATA",
+      "version": "1.0.0",
+      "effectiveDate": "2026-08-12",
+      "requiresConsentRecord": true,
+    },
+    {
+      "key": "COOKIE_POLICY",
+      "version": "1.0.0",
+      "effectiveDate": "2026-08-12",
+      "requiresConsentRecord": false,
+    },
+  ],
+}
+```
+
+`requiresConsentRecord: false` marks a document that is versioned and published but has no
+`user_consents` row — today only `COOKIE_POLICY`, whose acceptance lives in the browser cookie.
+Values come from `CONSENT_VERSION_<DOC>` / `CONSENT_EFFECTIVE_DATE_<DOC>`; a missing or malformed
+value stops the app at boot rather than serving a wrong version.
 
 ---
 

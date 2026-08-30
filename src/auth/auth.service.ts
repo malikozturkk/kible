@@ -7,7 +7,6 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
-import { ConfigService } from '@nestjs/config';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { StringValue } from 'ms';
 import { ConsentType, PasswordHashScheme, Prisma } from '@prisma/client';
@@ -16,6 +15,7 @@ import { NotificationDispatchService } from '../notifications/services/notificat
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
 import type { ConsentVersionsMap } from '../consent/consent.constants';
+import { LegalService } from '../legal/legal.service';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { AuthResponseDto } from './dto/auth-response.dto';
 import { AVATAR_COLOR_KEYS, type AvatarColorKey } from './constants/avatar.constants';
@@ -56,18 +56,10 @@ export class AuthService {
     private prisma: PrismaService,
     private jwtService: JwtService,
     private otpService: OtpService,
-    private configService: ConfigService,
+    private legalService: LegalService,
     private loginAttemptService: LoginAttemptService,
     private notificationDispatch: NotificationDispatchService,
   ) {}
-
-  private getConsentVersions(): ConsentVersionsMap {
-    const versions = this.configService.get<ConsentVersionsMap>('CONSENT_VERSIONS');
-    if (!versions) {
-      throw new Error('CONSENT_VERSIONS_NOT_CONFIGURED');
-    }
-    return versions;
-  }
 
   async register(registerDto: RegisterDto): Promise<RegisterResponseDto> {
     const { username, email, password, gender, country, city, madhab, language } = registerDto;
@@ -146,7 +138,7 @@ export class AuthService {
       { expiresIn: '10m' },
     );
 
-    const versions = this.getConsentVersions();
+    const versions = this.legalService.getConsentVersions();
     await this.otpService.create(tempToken, {
       email,
       username,

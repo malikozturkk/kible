@@ -10,7 +10,8 @@ import { GuidesModule } from './guides/guides.module';
 import { WorshipModule } from './worship/worship.module';
 import { UsersModule } from './users/users.module';
 import { ConsentModule } from './consent/consent.module';
-import { consentConfig } from './config/consent.config';
+import { legalConfig } from './config/legal.config';
+import { LegalModule } from './legal/legal.module';
 import { LeaderboardModule } from './leaderboard/leaderboard.module';
 import { AppThrottlerModule } from './common/throttler/throttler.module';
 import { AppLoggingModule } from './common/logging/logging.module';
@@ -21,7 +22,7 @@ import { NotificationsModule } from './notifications/notifications.module';
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
-      load: [consentConfig],
+      load: [legalConfig],
     }),
     AppLoggingModule,
     AppThrottlerModule,
@@ -31,6 +32,7 @@ import { NotificationsModule } from './notifications/notifications.module';
     GuidesModule,
     WorshipModule,
     UsersModule,
+    LegalModule,
     ConsentModule,
     LeaderboardModule,
     TelemetryModule,

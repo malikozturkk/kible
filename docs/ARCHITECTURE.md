@@ -26,11 +26,11 @@ password-reset link, so it must stay a bare `scheme://host:port`. The port falls
 
 ## Module graph
 
-`AppModule` imports eleven modules; two more join the graph transitively.
+`AppModule` imports twelve modules; two more join the graph transitively.
 
 ```
 AppModule
-├─ ConfigModule.forRoot({ isGlobal: true, load: [consentConfig] })
+├─ ConfigModule.forRoot({ isGlobal: true, load: [legalConfig] })
 ├─ AppLoggingModule        nestjs-pino LoggerModule.forRoot — see “Logging” below
 ├─ AppThrottlerModule      @Global — exports ThrottlerModule, see “Rate limiting”
 ├─ ScheduleModule.forRoot()
@@ -51,6 +51,7 @@ AppModule
 ├─ UsersModule
 ├─ LeaderboardModule
 ├─ TelemetryModule         POST /telemetry/client-errors → pino error log
+├─ LegalModule             @Global — exports LegalService (versions/dates) + GET /legal/documents
 └─ ConsentModule
    ├─ CacheModule.register()      non-global, in-memory
    └─ ConsentGuard                @Global + exported, injected by JwtAuthGuard
@@ -62,9 +63,14 @@ instantiated in every feature module that protects a route — can inject it.
 Note that `OtpModule` and `QuestionsModule` are not listed in `AppModule` — their controllers are
 still mounted because the modules are reachable through `AuthModule` and `GuidesModule`.
 
-`consentConfig` (`src/config/consent.config.ts`) reads `CONSENT_VERSION_TERMS_OF_SERVICE`,
-`CONSENT_VERSION_PRIVACY_POLICY` and `CONSENT_VERSION_SPECIAL_CATEGORY_DATA` and **throws at boot**
-if any is missing, exposing them as the `CONSENT_VERSIONS` config key.
+`legalConfig` (`src/config/legal.config.ts`) is the **single source of legal-document versions**. For
+each of the four documents — `TERMS_OF_SERVICE`, `PRIVACY_POLICY`, `SPECIAL_CATEGORY_DATA` and
+`COOKIE_POLICY` — it reads `CONSENT_VERSION_<DOC>` (semver) and `CONSENT_EFFECTIVE_DATE_<DOC>`
+(ISO calendar day) and **throws at boot** if any is missing or malformed, listing every offending
+key at once (`LEGAL_DOCUMENTS_NOT_CONFIGURED: …`). The result is exposed as the `LEGAL_DOCUMENTS`
+config key and read only through `LegalService` (`@Global`), which `ConsentService` and
+`AuthService` both delegate to — no version is hardcoded anywhere in either repo, and the frontend
+reads them over `GET /legal/documents`.
 
 ## Request lifecycle
 

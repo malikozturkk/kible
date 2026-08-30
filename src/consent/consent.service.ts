@@ -1,9 +1,10 @@
-import { BadRequestException, Inject, Injectable, Logger, OnModuleInit } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
+import { BadRequestException, Inject, Injectable } from '@nestjs/common';
 import { CACHE_MANAGER } from '@nestjs/cache-manager';
 import type { Cache } from 'cache-manager';
 import { ConsentType, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { LegalService } from '../legal/legal.service';
+import { CONSENT_DOCUMENT_KEYS } from '../legal/legal.constants';
 import {
   CONSENT_CACHE_PREFIX,
   CONSENT_CACHE_TTL_MS,
@@ -12,56 +13,24 @@ import {
 } from './consent.constants';
 import { ConsentStatusItemDto, ConsentStatusResponseDto } from './dto/consent-status.dto';
 
-const CONSENT_TYPES: ConsentType[] = [
-  ConsentType.TERMS_OF_SERVICE,
-  ConsentType.PRIVACY_POLICY,
-  ConsentType.SPECIAL_CATEGORY_DATA,
-];
 type LatestConsentRow = { type: ConsentType; version: string };
 
 @Injectable()
-export class ConsentService implements OnModuleInit {
-  private readonly logger = new Logger(ConsentService.name);
-
+export class ConsentService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly config: ConfigService,
+    private readonly legalService: LegalService,
     @Inject(CACHE_MANAGER) private readonly cache: Cache,
   ) {}
 
-  onModuleInit() {
-    const versions = this.getRequiredVersions();
-    this.logger.log(
-      `CONSENT_VERSIONS loaded: ${Object.entries(versions)
-        .map(([k, v]) => `${k}=${v}`)
-        .join(', ')}`,
-    );
-  }
-
-  getRequiredVersions(): ConsentVersionsMap {
-    const fromConfig = this.config.get<ConsentVersionsMap>('CONSENT_VERSIONS');
-    if (!fromConfig) {
-      throw new Error('CONSENT_VERSIONS_NOT_CONFIGURED');
-    }
-
-    const resolved: ConsentVersionsMap = { ...fromConfig };
-    for (const type of CONSENT_TYPES) {
-      const envKey = `CONSENT_VERSION_${type}`;
-      const override = this.config.get<string>(envKey);
-      if (override && override.length > 0) {
-        resolved[type] = override;
-      }
-    }
-    return resolved;
-  }
 
   async getStatus(userId: string): Promise<ConsentStatusResponseDto> {
-    const required = this.getRequiredVersions();
+    const required = this.legalService.getConsentVersions();
 
     const latest = await this.fetchLatestPerType(userId);
     const byType = new Map(latest.map((row) => [row.type, row.version]));
 
-    const items: ConsentStatusItemDto[] = CONSENT_TYPES.map((type) => {
+    const items: ConsentStatusItemDto[] = CONSENT_DOCUMENT_KEYS.map((type) => {
       const acceptedVersion = byType.get(type) ?? null;
       const currentVersion = required[type];
       return {
@@ -79,7 +48,7 @@ export class ConsentService implements OnModuleInit {
   }
 
   async accept(userId: string, type: ConsentType, version: string): Promise<void> {
-    const required = this.getRequiredVersions();
+    const required = this.legalService.getConsentVersions();
     const expected = required[type];
 
     if (version !== expected) {

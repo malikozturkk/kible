@@ -584,8 +584,10 @@ per user. Lookup is by `userId` + `isUsed: false` (the newest row), then a bcryp
 
 ### Consent
 
-Current versions live in env (`CONSENT_VERSION_TERMS_OF_SERVICE`, `CONSENT_VERSION_PRIVACY_POLICY`)
-and are loaded by `consentConfig`, which **throws at boot** if either is missing. Acceptances are
+Current versions live in env (`CONSENT_VERSION_<DOC>` + `CONSENT_EFFECTIVE_DATE_<DOC>` for the four
+documents) and are loaded by `legalConfig` into `LegalService`, which **throws at boot** if any is
+missing or malformed. `COOKIE_POLICY` is versioned the same way but has no `user_consents` row —
+the acceptance lives in the browser cookie, keyed by the version served from the backend. Acceptances are
 append-only rows unique on `(userId, type, version)`; "current" means the newest `acceptedAt` per
 type. Bumping a version makes `requiresReaccept` true for everyone until they re-accept.
 

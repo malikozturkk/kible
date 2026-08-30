@@ -41,9 +41,11 @@ Missing values fail at different times, which matters when debugging a boot erro
 | `LOG_LEVEL`                                    | pino log level (`trace`…`fatal`)                           | **optional**; defaults to `info` when `NODE_ENV=production`, otherwise `debug`          |
 | `COOKIE_SAMESITE`                              | `SameSite` of the refresh-token cookie                     | **optional**; defaults to `lax`. `none` forces `Secure`                                 |
 | `COOKIE_DOMAIN`                                | `Domain` of the refresh-token cookie                       | **optional**; empty = host-only cookie                                                  |
-| `CONSENT_VERSION_TERMS_OF_SERVICE`             | `consentConfig`                                            | **throws at boot**: `CONSENT_VERSIONS_NOT_CONFIGURED`                                   |
-| `CONSENT_VERSION_PRIVACY_POLICY`               | `consentConfig`                                            | same                                                                                    |
-| `CONSENT_VERSION_SPECIAL_CATEGORY_DATA`        | `consentConfig`                                            | same                                                                                    |
+| `CONSENT_VERSION_TERMS_OF_SERVICE`             | `legalConfig`                                              | **throws at boot**: `LEGAL_DOCUMENTS_NOT_CONFIGURED`                                    |
+| `CONSENT_VERSION_PRIVACY_POLICY`               | `legalConfig`                                              | same                                                                                    |
+| `CONSENT_VERSION_SPECIAL_CATEGORY_DATA`        | `legalConfig`                                              | same                                                                                    |
+| `CONSENT_VERSION_COOKIE_POLICY`                | `legalConfig`                                              | same                                                                                    |
+| `CONSENT_EFFECTIVE_DATE_<DOC>` (4 documents)   | `legalConfig`                                              | same (ISO `YYYY-MM-DD`; a malformed value is reported by key)                            |
 | `MAILJET_API_KEY` / `MAILJET_API_SECRET`       | `EmailService`                                             | OTP and reset emails fail at send time                                                  |
 | `MAILJET_SENDER_EMAIL` / `MAILJET_SENDER_NAME` | `EmailService`                                             | Mailjet rejects the message                                                             |
 | `MAILJET_OTP_TEMPLATE_ID`                      | OTP email                                                  | `Number(undefined)` → `NaN` → Mailjet rejects                                           |
@@ -251,7 +253,7 @@ If you need a user without touching email, insert the rows directly (`users` + `
 
 | Symptom                                                      | Cause                                                                                                             |
 | ------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------- |
-| Boot: `CONSENT_VERSIONS_NOT_CONFIGURED: missing env vars: …` | a `CONSENT_VERSION_*` variable is unset or blank                                                                  |
+| Boot: `LEGAL_DOCUMENTS_NOT_CONFIGURED: …`                    | a `CONSENT_VERSION_*` / `CONSENT_EFFECTIVE_DATE_*` variable is unset, blank or malformed                                                                  |
 | Boot: `DATABASE_URL environment variable is not set`         | `.env` missing or not loaded                                                                                      |
 | Login always `INVALID_CREDENTIALS` for a known-good password | `PEPPER` changed since the hash was written                                                                       |
 | `400 VALIDATION_ERROR` on a request that looks correct       | an extra field — `forbidNonWhitelisted: true` rejects anything not on the DTO                                     |

@@ -5,12 +5,14 @@ import { CONSENT_BYPASS_ROUTES, ConsentErrorCode } from '../consent.constants';
 import { CONSENT_BYPASS_KEY } from '../decorators/consent-bypass.decorator';
 import { IS_PUBLIC_KEY } from '../../common/decorators/public.decorator';
 import { ConsentService } from '../consent.service';
+import { LegalService } from 'src/legal/legal.service';
 
 @Injectable()
 export class ConsentGuard implements CanActivate {
   constructor(
     private readonly reflector: Reflector,
     private readonly consentService: ConsentService,
+    private readonly legalService: LegalService,
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -39,7 +41,7 @@ export class ConsentGuard implements CanActivate {
     const userId = req.user?.id;
     if (!userId) return true;
 
-    const required = this.consentService.getRequiredVersions();
+    const required = this.legalService.getConsentVersions();
     const latest = await this.consentService.fetchLatestPerType(userId);
     const byType = new Map(latest.map((row) => [row.type, row.version]));
 
